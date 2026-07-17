@@ -4,6 +4,17 @@ import AVFoundation
 /// OpenAI-compatible Whisper transcription client for OpenAI and Groq.
 enum CloudWhisperAPI {
     
+    /// Session for Whisper STT — no artificial deadline; long dictations may take a while.
+    /// (0 = system default unlimited for request/resource on URLSessionConfiguration)
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        // No cap: let Whisper finish long audio / slow networks.
+        config.timeoutIntervalForRequest = 0
+        config.timeoutIntervalForResource = 0
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+    
     struct TranscriptionResult {
         let text: String
         let durationSeconds: Double
@@ -69,8 +80,8 @@ enum CloudWhisperAPI {
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        // Short clips finish well under this; fail fast on hangs
-        request.timeoutInterval = 45
+        // No request timeout — transcription can take as long as the provider needs
+        request.timeoutInterval = .infinity
         
         let audioData = try Data(contentsOf: audioURL)
         let filename = audioURL.lastPathComponent
@@ -102,7 +113,7 @@ enum CloudWhisperAPI {
         request.httpBody = body
         
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 throw APIError.emptyResponse
             }

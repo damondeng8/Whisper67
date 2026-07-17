@@ -297,7 +297,7 @@ final class AppState {
         didSet { UserDefaults.standard.set(listModeEnabled, forKey: Keys.listMode) }
     }
     
-    /// When on, raw Whisper text is polished by a light Groq LLM (gpt-oss-20b).
+    /// When on, raw Whisper text is polished by a fast Groq LLM (llama-3.1-8b-instant).
     var aiPolishEnabled: Bool {
         didSet { UserDefaults.standard.set(aiPolishEnabled, forKey: Keys.aiPolish) }
     }

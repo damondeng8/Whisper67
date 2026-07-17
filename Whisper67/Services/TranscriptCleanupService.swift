@@ -2,12 +2,22 @@ import Foundation
 
 /// Post-Whisper LLM polish + intention check.
 /// Strength 0…1: light word tweaks → full grammar / formal rewrite.
-/// Uses Groq `openai/gpt-oss-20b` (cheap + fast).
+/// Uses Groq `llama-3.1-8b-instant` — very fast, no reasoning delay (gpt-oss was timing out).
 enum TranscriptCleanupService {
     
-    static let modelID = "openai/gpt-oss-20b"
+    /// Instant model on Groq (~ms tokens). Avoid reasoning models here — they blow past request timeouts.
+    static let modelID = "llama-3.1-8b-instant"
     
     private static let endpoint = URL(string: "https://api.groq.com/openai/v1/chat/completions")!
+    
+    /// Dedicated session: short request timeout, fail open to local cleanup.
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 25
+        config.waitsForConnectivity = false
+        return URLSession(configuration: config)
+    }()
     
     private static let skipMarkers = [
         "No speech detected", "Recording too short", "No audio detected",
@@ -106,7 +116,8 @@ enum TranscriptCleanupService {
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 12
+        // Fast fail — local SelfCorrection already ran; do not hang the whole dictation
+        request.timeoutInterval = 15
         
         let userContent = buildUserMessage(
             raw: raw,
@@ -117,12 +128,9 @@ enum TranscriptCleanupService {
             strength: strength
         )
         
-        // Stronger polish may produce slightly longer prose
-        let expand = 1.0 + strength * 1.2
-        let maxOut = min(2048, max(128, Int(Double(raw.count) * expand * 2)))
-        
-        // Light = deterministic; strong = a bit more room to rephrase
-        let temperature = 0.08 + strength * 0.35
+        // Tight cap: polish should not generate essays
+        let maxOut = min(600, max(64, raw.count + 80))
+        let temperature = 0.1 + strength * 0.25
         
         let body: [String: Any] = [
             "model": modelID,
@@ -132,14 +140,13 @@ enum TranscriptCleanupService {
             "temperature": temperature,
             "max_completion_tokens": maxOut,
             "top_p": 0.9,
-            "stream": false,
-            "reasoning_effort": "low",
-            "include_reasoning": false
+            "stream": false
+            // No reasoning_effort — not a reasoning model; keeps latency low
         ]
         
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw CleanupError.badResponse
         }
@@ -216,46 +223,12 @@ enum TranscriptCleanupService {
             ]
         }
         
+        // Compact prompt = faster completion (was timing out with huge prompts + reasoning models)
         rules.append(contentsOf: [
-            "You clean speech-to-text for paste. Intensity: \(tier).",
-            "Output ONLY the final text — no quotes, markdown fences, or commentary.",
-            "Do not translate.",
-            "",
-            "══════════════════════════════════════",
-            "SELF-CORRECTIONS (HIGHEST PRIORITY)",
-            "══════════════════════════════════════",
-            "When the speaker changes their mind mid-sentence, keep ONLY the final intent.",
-            "Drop the superseded word/phrase and the correction markers (no, wait, actually, I mean).",
-            "",
-            "Examples (required behavior):",
-            "Input: hey let's book a meeting for Thursday no actually Friday at 3 30pm",
-            "Output: hey let's book a meeting for Friday at 3:30pm",
-            "",
-            "Input: meet Tuesday wait no Friday",
-            "Output: meet Friday",
-            "",
-            "Input: send it to John no actually Jane",
-            "Output: send it to Jane",
-            "",
-            "Input: tomorrow at 2 no wait 3pm",
-            "Output: tomorrow at 3pm",
-            "",
-            "══════════════════════════════════════",
-            "TIMES (always normalize)",
-            "══════════════════════════════════════",
-            "Write clock times as H:MM with optional am/pm. Examples:",
-            "\"3 30pm\" / \"3, 30 pm\" / \"3.30 p.m.\" / \"three thirty pm\" → \"3:30pm\"",
-            "\"half past 3\" → \"3:30\", \"quarter past 4\" → \"4:15\", \"3 o'clock\" → \"3:00\"",
-            "\"at noon\" → \"at 12:00pm\", \"at midnight\" → \"at 12:00am\"",
-            "",
-            "══════════════════════════════════════",
-            "CONTENT PRESERVATION",
-            "══════════════════════════════════════",
-            "- Keep greetings, names, openers, closers that were NOT corrected away.",
-            "- NEVER drop \"Hey John\", \"Hi Sarah\", \"Dear team\" unless the speaker corrected them.",
-            "- NEVER invent new facts. Do not turn a full sentence into only a list of nouns.",
-            "- Remove pure fillers (um, uh) and words the speaker explicitly replaced.",
-            "- Self-corrections OVERRIDE keep-everything: the corrected-away value must go.",
+            "Clean this speech-to-text for paste. Intensity: \(tier). Output ONLY the cleaned text.",
+            "Self-corrections: keep FINAL intent only. \"Thursday no actually Friday\" → Friday. \"2 no wait 3pm\" → 3pm.",
+            "Times: use H:MM am/pm. \"3 30pm\" / \"3, 30 pm\" / \"three thirty\" → 3:30pm. half past 3 → 3:30. 3 o'clock → 3:00.",
+            "Keep greetings/names. Remove um/uh fillers. Do not invent content or translate.",
             ""
         ])
         
