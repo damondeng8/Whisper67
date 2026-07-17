@@ -1,0 +1,11 @@
+build/
+.DS_Store
+*.xcuserstate
+xcuserdata/
+dist/dmg-stage/
+.paragon/
+.claude/
+dist/*.app
+dist/*.dmg
+dist/*.sha256
+dist/dmg-stage/
