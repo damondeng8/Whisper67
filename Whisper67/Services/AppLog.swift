@@ -1,11 +1,10 @@
 import Foundation
 
-/// Lightweight logging — hot-path noise only in DEBUG builds.
+/// Lightweight logging. `debug` is always printed for paste/dictation diagnostics
+/// (menu-bar apps have no console UI — Console.app filters by process name Whisper67).
 enum AppLog {
     static func debug(_ message: @autoclosure () -> String) {
-        #if DEBUG
         print(message())
-        #endif
     }
     
     static func info(_ message: @autoclosure () -> String) {

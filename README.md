@@ -66,14 +66,23 @@ open Whisper67.xcodeproj
 
 In Xcode: select the **Whisper67** scheme → **Run** (or Product → Archive).
 
-### Build a signed DMG
+### Build a signed (+ optional notarized) DMG
 
 ```bash
+# One-time: store Apple notary credentials (fixes Gatekeeper “malware” warning)
+xcrun notarytool store-credentials "whisper67-notary" \
+  --apple-id "you@email.com" \
+  --team-id PPPFP5Z7VS \
+  --password "app-specific-password"   # appleid.apple.com → App-Specific Passwords
+
+export NOTARY_PROFILE=whisper67-notary
 ./scripts/build_dmg.sh
-# → dist/Whisper67-1.0.0.dmg
+# → dist/Whisper67-1.0.0.dmg  (signed, notarized, stapled when credentials present)
 ```
 
-Uses **Developer ID Application** if installed in Keychain (with microphone entitlements). Otherwise ad‑hoc sign.
+Skip notarization: `SKIP_NOTARIZE=1 ./scripts/build_dmg.sh`
+
+Uses **Developer ID Application** if installed (with microphone entitlements).
 
 ---
 
