@@ -515,10 +515,11 @@ final class AppState {
         return parts.joined(separator: " ")
     }
     
-    /// Apply local intention repair + style post-processing (no LLM).
+    /// Apply self-corrections + dictionary repair + style (no LLM).
     /// - Parameter forceList: only true when `ListDetector` says this utterance is a list.
     func formatTranscript(_ raw: String, forceList: Bool? = nil) -> String {
-        let intended = IntentVocabulary.localRepair(raw, userDictionary: customWords.map(\.word))
+        var intended = SelfCorrection.apply(raw)
+        intended = IntentVocabulary.localRepair(intended, userDictionary: customWords.map(\.word))
         let useList: Bool
         if let forceList {
             useList = forceList

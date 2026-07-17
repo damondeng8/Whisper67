@@ -38,8 +38,9 @@ enum TranscriptCleanupService {
         
         let intensity = min(1, max(0, strength))
         
-        // Always run local intention repair first (instant, no API)
-        let locallyFixed = IntentVocabulary.localRepair(text, userDictionary: dictionaryWords)
+        // Local passes first: self-corrections ("Thursday no Friday") + dictionary
+        var locallyFixed = SelfCorrection.apply(text)
+        locallyFixed = IntentVocabulary.localRepair(locallyFixed, userDictionary: dictionaryWords)
         
         let key = groqAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return locallyFixed }
@@ -73,10 +74,12 @@ enum TranscriptCleanupService {
             
             // Hard guard: detector said prose → never keep a false numbered list
             if listModeEnabled && !listLikely && ListDetector.looksLikeNumberedList(trimmed) {
-                print("📋 Demoting false numbered list → prose")
+                AppLog.debug("📋 Demoting false numbered list → prose")
                 trimmed = ListDetector.demoteNumberedListToProse(trimmed)
             }
             
+            // Re-apply self-corrections + dictionary after OSS
+            trimmed = SelfCorrection.apply(trimmed)
             trimmed = IntentVocabulary.localRepair(trimmed, userDictionary: dictionaryWords)
             
             let outWords = trimmed.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).count
@@ -182,13 +185,13 @@ enum TranscriptCleanupService {
             tier = "LIGHT (\(Int(strength * 100))%)"
             tierRules = [
                 "INTENSITY: LIGHT — minimal changes only.",
+                "- ALWAYS apply self-corrections (final intent only) — see SELF-CORRECTIONS above.",
                 "- Fix wrong words / near-homophones using the user dictionary when provided.",
-                "- Apply self-corrections (\"Tuesday wait no Friday\" → Friday).",
+                "- Normalize times like \"3 30pm\" → \"3:30pm\".",
                 "- Remove pure noise fillers only (um, uh) — never names or greetings.",
                 "- Light capitalization and end punctuation if missing.",
-                "- Do NOT rephrase, formalize, summarize, or shorten.",
-                "- Do NOT remove \"hey/hi/hello + name\" or any addressed line.",
-                "- Keep sentence structure almost identical to the transcript.",
+                "- Do NOT formalize, summarize, or invent content.",
+                "- Do NOT remove \"hey/hi/hello + name\" unless the speaker corrected it.",
             ]
         case ..<0.67:
             tier = "BALANCED (\(Int(strength * 100))%)"
@@ -219,13 +222,32 @@ enum TranscriptCleanupService {
             "Do not translate.",
             "",
             "══════════════════════════════════════",
-            "CONTENT PRESERVATION (HIGHEST PRIORITY)",
+            "SELF-CORRECTIONS (HIGHEST PRIORITY)",
             "══════════════════════════════════════",
-            "- Keep EVERY meaningful part: greetings, names, openers, closers, asides.",
-            "- NEVER drop \"Hey John\", \"Hi Sarah\", \"Dear team\", or similar addresses.",
-            "- NEVER delete whole clauses or turn a full sentence into only nouns.",
-            "- Only remove pure fillers (um, uh) and false starts the speaker replaced.",
-            "- If unsure whether something is filler vs content, KEEP it.",
+            "When the speaker changes their mind mid-sentence, keep ONLY the final intent.",
+            "Drop the superseded word/phrase and the correction markers (no, wait, actually, I mean).",
+            "",
+            "Examples (required behavior):",
+            "Input: hey let's book a meeting for Thursday no actually Friday at 3 30pm",
+            "Output: hey let's book a meeting for Friday at 3:30pm",
+            "",
+            "Input: meet Tuesday wait no Friday",
+            "Output: meet Friday",
+            "",
+            "Input: send it to John no actually Jane",
+            "Output: send it to Jane",
+            "",
+            "Input: tomorrow at 2 no wait 3pm",
+            "Output: tomorrow at 3pm",
+            "",
+            "══════════════════════════════════════",
+            "CONTENT PRESERVATION",
+            "══════════════════════════════════════",
+            "- Keep greetings, names, openers, closers that were NOT corrected away.",
+            "- NEVER drop \"Hey John\", \"Hi Sarah\", \"Dear team\" unless the speaker corrected them.",
+            "- NEVER invent new facts. Do not turn a full sentence into only a list of nouns.",
+            "- Remove pure fillers (um, uh) and words the speaker explicitly replaced.",
+            "- Self-corrections OVERRIDE keep-everything: the corrected-away value must go.",
             ""
         ])
         
@@ -391,24 +413,35 @@ enum TranscriptCleanupService {
             return true
         }
         
-        // Reject aggressive deletion (e.g. dropped "Hey John" / whole clauses)
+        // Self-corrections legitimately drop superseded words — use looser keep ratio
+        // when the raw transcript has correction markers.
+        let hasCorrectionCue = original.range(
+            of: #"(?i)\b(no|nope|wait|actually|i mean|scratch that)\b"#,
+            options: .regularExpression
+        ) != nil
+        
         let origWords = significantWords(original)
         let cleanWords = significantWords(cleaned)
         if !origWords.isEmpty {
             let kept = origWords.filter { cleanWords.contains($0) }.count
             let keepRatio = Double(kept) / Double(origWords.count)
-            // At light strength require ~70% of content words; strong allows a bit more rephrase
-            let minKeep = strength < 0.34 ? 0.70 : (strength < 0.67 ? 0.55 : 0.45)
+            let minKeep: Double
+            if hasCorrectionCue {
+                minKeep = 0.35 // allow dropping "Thursday" etc.
+            } else {
+                minKeep = strength < 0.34 ? 0.70 : (strength < 0.67 ? 0.55 : 0.45)
+            }
             if keepRatio < minKeep {
-                print("⚠️ Content keep ratio \(String(format: "%.2f", keepRatio)) < \(minKeep)")
+                AppLog.debug("⚠️ Content keep ratio \(String(format: "%.2f", keepRatio)) < \(minKeep)")
                 return true
             }
-            // Openers (Hey/John/…) — at light/balanced, reject if first real word vanished
-            if strength < 0.67,
+            // Openers — only enforce when no correction cue (correction might rewrite start)
+            if !hasCorrectionCue,
+               strength < 0.67,
                let first = origWords.first,
                first.count >= 3,
                !cleanWords.contains(first) {
-                print("⚠️ Leading content word dropped: \(first)")
+                AppLog.debug("⚠️ Leading content word dropped: \(first)")
                 return true
             }
         }
