@@ -4,16 +4,17 @@ import Carbon
 import ApplicationServices
 import Observation
 
-/// System-wide dictation input — works when Whisper67 is in the background.
+/// System-wide **Control** push-to-talk — works when Whisper67 is in the background.
 ///
 /// Uses a **dedicated CFRunLoop thread** for the CGEvent tap so macOS does not
-/// starve the tap when the app is not frontmost (common SwiftUI/main-thread issue).
+/// starve the tap when the app is not frontmost.
 ///
-/// Controls:
+/// Owns only ⌃:
 /// - Hold ⌃ → push-to-talk (release to send)
 /// - Double-tap ⌃ → sticky
-/// - Enter → send (even while ⌃ is held)
-/// - Esc → cancel
+///
+/// Enter / Esc during a session are owned solely by `RecordingKeyMonitor`
+/// (avoids triple-handlers and double confirm).
 @Observable
 final class ControlDictationInput {
     static let shared = ControlDictationInput()
@@ -28,25 +29,15 @@ final class ControlDictationInput {
     private(set) var engineStatus = "Not started"
     
     var onStart: (() -> Void)?
+    /// Fired when Control is released (hold-to-talk send).
     var onConfirm: (() -> Void)?
-    var onCancel: (() -> Void)?
     
     var isRecording = false {
         didSet {
-            // Keep a plain non-Observation flag for the event-tap thread (thread-safe read).
-            sessionKeysActive = isRecording
             if isRecording != oldValue {
-                print("🎙 isRecording → \(isRecording) sticky=\(isSticky)")
+                AppLog.debug("🎙 isRecording → \(isRecording) sticky=\(isSticky)")
             }
         }
-    }
-    
-    /// Thread-safe session gate for Enter/Esc (read from CGEvent tap thread).
-    private let sessionLock = NSLock()
-    private var _sessionKeysActive = false
-    private var sessionKeysActive: Bool {
-        get { sessionLock.lock(); defer { sessionLock.unlock() }; return _sessionKeysActive }
-        set { sessionLock.lock(); _sessionKeysActive = newValue; sessionLock.unlock() }
     }
     
     // MARK: - Private
@@ -71,7 +62,6 @@ final class ControlDictationInput {
     
     private var lastControlActionAt: Date = .distantPast
     private var lastConfirmAt: Date = .distantPast
-    private var lastCancelAt: Date = .distantPast
     
     // Tight windows for snappy hold-to-talk; double-tap still reliable.
     private let doubleTapWindow: TimeInterval = 0.38
@@ -307,30 +297,7 @@ final class ControlDictationInput {
             return Unmanaged.passUnretained(event)
         }
         
-        // Enter / Esc while session active — works for sticky even if Control still down.
-        // Use sessionKeysActive (lock-backed), not @Observable isRecording, for tap-thread safety.
-        if sessionKeysActive && type == .keyDown {
-            let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-            // Only Command blocks confirm (Cmd+Enter stays with the app)
-            if event.flags.contains(.maskCommand) {
-                return Unmanaged.passUnretained(event)
-            }
-            switch keyCode {
-            case Int64(kVK_Return), Int64(kVK_ANSI_KeypadEnter):
-                if isRepeat { return nil }
-                print("⏎ ControlDictationInput CGEvent Enter → confirm")
-                fireConfirm()
-                return nil
-            case Int64(kVK_Escape):
-                if isRepeat { return nil }
-                print("⎋ ControlDictationInput CGEvent Esc → cancel")
-                fireCancel()
-                return nil
-            default:
-                break
-            }
-        }
-        
+        // Enter/Esc: RecordingKeyMonitor only (while a session is open)
         return Unmanaged.passUnretained(event)
     }
     
@@ -495,16 +462,8 @@ final class ControlDictationInput {
         let now = Date()
         guard now.timeIntervalSince(lastConfirmAt) > 0.25 else { return }
         lastConfirmAt = now
-        print("⏎ confirm")
+        AppLog.debug("⏎ Control release → confirm")
         DispatchQueue.main.async { self.onConfirm?() }
-    }
-    
-    private func fireCancel() {
-        let now = Date()
-        guard now.timeIntervalSince(lastCancelAt) > 0.25 else { return }
-        lastCancelAt = now
-        print("⎋ cancel")
-        DispatchQueue.main.async { self.onCancel?() }
     }
     
     // MARK: - NSEvent monitors (always install global when possible)
@@ -548,30 +507,8 @@ final class ControlDictationInput {
             return false
         }
         
-        guard event.type == .keyDown, sessionKeysActive else { return false }
-        if event.modifierFlags.contains(.command) { return false }
-        
-        if event.isARepeat {
-            switch Int(event.keyCode) {
-            case kVK_Return, kVK_ANSI_KeypadEnter, kVK_Escape:
-                return consume // swallow repeats
-            default:
-                return false
-            }
-        }
-        
-        switch Int(event.keyCode) {
-        case kVK_Return, kVK_ANSI_KeypadEnter:
-            print("⏎ ControlDictationInput NSEvent Enter → confirm")
-            fireConfirm()
-            return consume
-        case kVK_Escape:
-            print("⎋ ControlDictationInput NSEvent Esc → cancel")
-            fireCancel()
-            return consume
-        default:
-            return false
-        }
+        // Only Control is handled here (flagsChanged above). Enter/Esc → RecordingKeyMonitor.
+        return false
     }
     
     deinit {

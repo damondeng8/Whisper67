@@ -30,7 +30,95 @@ struct ModesTab: View {
                     .padding(18)
                 }
                 
-                // List mode
+                // OSS fixer toggle + strength slider
+                GlassCard {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(alignment: .center, spacing: 14) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(DengBrand.ink)
+                                .frame(width: 28, height: 28)
+                                .background(Circle().fill(DengBrand.chipInset))
+                            
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("OSS fixer")
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                Text(aiPolishSubtitle)
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $appState.aiPolishEnabled)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                        }
+                        
+                        if appState.aiPolishEnabled {
+                            Divider().opacity(0.35)
+                            
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Text("Fix strength")
+                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    Spacer()
+                                    Text(appState.aiPolishStrengthLabel)
+                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(DengBrand.ink)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background {
+                                            Capsule().fill(DengBrand.chipInset)
+                                        }
+                                }
+                                
+                                Slider(value: $appState.aiPolishStrength, in: 0...1, step: 0.05)
+                                    .tint(DengBrand.ink)
+                                
+                                HStack {
+                                    Text("Light")
+                                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.tertiary)
+                                    Spacer()
+                                    Text("Balanced")
+                                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.tertiary)
+                                    Spacer()
+                                    Text("Strong")
+                                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                
+                                Text(appState.aiPolishStrengthDetail)
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                
+                                // Tier bullets
+                                VStack(alignment: .leading, spacing: 4) {
+                                    strengthBullet("Light", "Word intention, fillers, near-homophones")
+                                    strengthBullet("Balanced", "+ light grammar & punctuation")
+                                    strengthBullet("Strong", "+ full grammar, smoother & more formal prose")
+                                }
+                                .padding(.top, 2)
+                                
+                                Text("Model: \(TranscriptCleanupService.modelID) · Groq key · fails open to raw")
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 2)
+                                
+                                if appState.groqKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                                    Text("Add a Groq key in the API tab to run the OSS fixer.")
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.orange)
+                                        .padding(.top, 2)
+                                }
+                            }
+                        }
+                    }
+                    .padding(18)
+                }
+                
+                // List mode — OSS formats lists (local splitter is fallback only)
                 GlassCard {
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(alignment: .center, spacing: 14) {
@@ -38,14 +126,12 @@ struct ModesTab: View {
                                 .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(DengBrand.ink)
                                 .frame(width: 28, height: 28)
-                                .background(Circle().fill(Color.black.opacity(0.06)))
+                                .background(Circle().fill(DengBrand.chipInset))
                             
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Auto list")
                                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                Text(appState.listModeEnabled
-                                     ? "Items become 1. 2. 3. on separate lines"
-                                     : "Off — paste as a normal paragraph")
+                                Text(listModeSubtitle)
                                     .font(.system(size: 12, design: .rounded))
                                     .foregroundStyle(.secondary)
                             }
@@ -58,19 +144,26 @@ struct ModesTab: View {
                         if appState.listModeEnabled {
                             Divider().opacity(0.35)
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Say things like:")
+                                Text("Dynamic detection — not everything becomes a list:")
                                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                                     .foregroundStyle(.secondary)
-                                Text("“First milk, second eggs, third bread”")
+                                Text("• “Hey John, I would like some food.” → normal sentence")
                                     .font(.system(size: 12, design: .rounded))
-                                Text("“Milk and eggs and bread”")
+                                Text("• “first milk second eggs third bread” → 1. 2. 3.")
                                     .font(.system(size: 12, design: .rounded))
-                                Text("“Next buy stamps, then mail the letter”")
+                                Text("• “hey John first milk second eggs” → intro + list")
                                     .font(.system(size: 12, design: .rounded))
-                                Text("→ becomes numbered lines automatically.")
+                                Text("Needs first/second, number one/two, next+then+also, etc.")
                                     .font(.system(size: 11, design: .rounded))
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 2)
+                                
+                                if !appState.hasGroqKey {
+                                    Text("Add a Groq key for better list formatting after detection.")
+                                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                                        .foregroundStyle(.orange)
+                                        .padding(.top, 4)
+                                }
                             }
                         }
                     }
@@ -82,7 +175,9 @@ struct ModesTab: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Preview")
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        Text("Sample raw → \(appState.modeStatusLabel)")
+                        Text(appState.canRunAIPolish
+                             ? "Local rules only (AI polish runs on real dictations)"
+                             : "Sample raw → \(appState.modeStatusLabel)")
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(.secondary)
                         
@@ -93,7 +188,7 @@ struct ModesTab: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.black.opacity(0.03))
+                                    .fill(DengBrand.chip)
                             }
                         
                         Image(systemName: "arrow.down")
@@ -109,7 +204,7 @@ struct ModesTab: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.black.opacity(0.05))
+                                    .fill(DengBrand.chip)
                             }
                     }
                     .padding(18)
@@ -119,17 +214,53 @@ struct ModesTab: View {
         }
     }
     
+    private var aiPolishSubtitle: String {
+        if !appState.aiPolishEnabled {
+            return appState.canRunOSSList
+                ? "Off for polish · lists still use OSS"
+                : "Off — Whisper + local intention only"
+        }
+        if appState.canRunAIPolish {
+            return "On · \(appState.aiPolishStrengthLabel) · after every dictation"
+        }
+        return "On · waiting for Groq API key"
+    }
+    
+    private var listModeSubtitle: String {
+        if !appState.listModeEnabled {
+            return "Off — never formats as a list"
+        }
+        if appState.hasGroqKey {
+            return "On · smart detect (only real lists)"
+        }
+        return "On · local detect only (add Groq for OSS lists)"
+    }
+    
+    private func strengthBullet(_ title: String, _ detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("•")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(DengBrand.ink.opacity(0.85))
+            Text(detail)
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+    }
+    
     private var sampleRaw: String {
         if appState.listModeEnabled {
             return "first buy milk second get eggs third pick up bread"
         }
         switch appState.dictationStyle {
+        case .casual:
+            return "Hey don't forget we'll need the report ready by Friday"
+        case .normal:
+            return "Hey John what's the plan? We'll meet at noon then ship!"
         case .formal:
             return "hey don't forget we'll need the report ready by friday"
-        case .casual:
-            return "hey don't forget we'll need the report ready by friday"
-        case .periodsOnly:
-            return "what's the plan? we'll meet at noon, then ship — ok!"
         }
     }
     
@@ -141,11 +272,10 @@ struct ModesTab: View {
             HStack(spacing: 12) {
                 Image(systemName: style.icon)
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(selected ? .white : DengBrand.ink)
+                    .foregroundStyle(DengBrand.ink)
                     .frame(width: 32, height: 32)
                     .background {
-                        Circle()
-                            .fill(selected ? DengBrand.ink : Color.black.opacity(0.06))
+                        Circle().fill(DengBrand.chipInset)
                     }
                 
                 VStack(alignment: .leading, spacing: 2) {
@@ -154,7 +284,7 @@ struct ModesTab: View {
                         .foregroundStyle(DengBrand.ink)
                     Text(style.subtitle)
                         .font(.system(size: 11, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DengBrand.graphite)
                 }
                 Spacer()
                 if selected {
@@ -164,15 +294,7 @@ struct ModesTab: View {
             }
             .padding(12)
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(selected ? Color.black.opacity(0.06) : Color.black.opacity(0.02))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(
-                                selected ? Color.black.opacity(0.14) : Color.clear,
-                                lineWidth: 1
-                            )
-                    }
+                SelectChipBackground(isSelected: selected, cornerRadius: 12)
             }
         }
         .buttonStyle(.plain)

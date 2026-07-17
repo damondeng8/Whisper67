@@ -2,6 +2,7 @@ import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
     case home
+    case history
     case modes
     case api
     case dictionary
@@ -13,6 +14,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .home: return "Home"
+        case .history: return "History"
         case .modes: return "Modes"
         case .api: return "API"
         case .dictionary: return "Dictionary"
@@ -24,6 +26,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .home: return "house.fill"
+        case .history: return "clock.arrow.circlepath"
         case .modes: return "text.badge.checkmark"
         case .api: return "key.fill"
         case .dictionary: return "text.book.closed.fill"
@@ -41,7 +44,7 @@ struct SettingsView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 228)
+                .frame(width: 210)
             
             // Soft glass divider
             Rectangle()
@@ -62,9 +65,9 @@ struct SettingsView: View {
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 960, minHeight: 640)
+        .frame(minWidth: 820, minHeight: 560)
+        .frame(idealWidth: 900, idealHeight: 640)
         .background { DengBrand.meshBackground }
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
     
     private var sidebar: some View {
@@ -157,6 +160,8 @@ struct SettingsView: View {
         switch selectedTab {
         case .home:
             HomeDashboardView(appState: appState, manager: manager)
+        case .history:
+            HistoryTab(appState: appState)
         case .modes:
             ModesTab(appState: appState)
         case .api:

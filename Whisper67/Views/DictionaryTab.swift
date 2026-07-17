@@ -10,7 +10,7 @@ struct DictionaryTab: View {
             VStack(alignment: .leading, spacing: 22) {
                 SectionHeader(
                     title: "Custom words",
-                    subtitle: "Names, jargon, and spellings Whisper should prefer — like Wispr Flow’s dictionary"
+                    subtitle: "Your preferred spellings only — Whisper, local repair, and OSS use this list"
                 )
                 
                 GlassCard {
@@ -19,7 +19,7 @@ struct DictionaryTab: View {
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                         
                         HStack(spacing: 10) {
-                            TextField("e.g. Whisper67, SaaS, Yi Fa Deng", text: $newWord)
+                            TextField("Add a name, product, or term…", text: $newWord)
                                 .textFieldStyle(.plain)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
@@ -38,7 +38,7 @@ struct DictionaryTab: View {
                             .disabled(newWord.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                         
-                        Text("These words are sent as a Whisper prompt hint so names and product terms land correctly.")
+                        Text("Only words you add are preferred. They’re used for Whisper bias, local near-miss repair, and OSS intention — nothing is pre-filled.")
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(.secondary)
                     }

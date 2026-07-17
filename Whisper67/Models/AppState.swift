@@ -67,49 +67,56 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Codable {
 // MARK: - Dictation style modes
 
 enum DictationStyle: String, CaseIterable, Identifiable, Codable {
-    case formal
     case casual
-    case periodsOnly
+    case normal
+    case formal
     
     var id: String { rawValue }
     
     var displayName: String {
         switch self {
-        case .formal: return "Formal"
         case .casual: return "Casual"
-        case .periodsOnly: return "Periods only"
+        case .normal: return "Normal"
+        case .formal: return "Formal"
         }
     }
     
     var subtitle: String {
         switch self {
-        case .formal:
-            return "Polished prose · full punctuation"
         case .casual:
-            return "Natural spoken tone"
-        case .periodsOnly:
-            return "Formal feel · mainly periods (no commas/!/?)"
+            return "lowercase · chatty · keep slang & contractions"
+        case .normal:
+            return "Commas for pauses · no periods"
+        case .formal:
+            return "Full sentences · proper caps & punctuation"
         }
     }
     
     var icon: String {
         switch self {
-        case .formal: return "text.alignleft"
         case .casual: return "bubble.left"
-        case .periodsOnly: return "textformat.abc"
+        case .normal: return "text.alignleft"
+        case .formal: return "text.book.closed"
         }
     }
     
     /// Whisper prompt bias for cloud (and soft local hint).
     var whisperHint: String {
         switch self {
-        case .formal:
-            return "Transcribe in clear formal English with proper capitalization and punctuation."
         case .casual:
-            return "Transcribe naturally in a casual conversational tone."
-        case .periodsOnly:
-            return "Transcribe formally using periods to end sentences. Avoid commas, question marks, and exclamation points."
+            return "Transcribe in casual lowercase chat style. Keep contractions and informal wording. Prefer little or no formal punctuation."
+        case .normal:
+            return "Transcribe as continuous text using commas for pauses. Do not use periods, question marks, or exclamation points."
+        case .formal:
+            return "Transcribe in formal written English with proper capitalization, full sentences, and complete punctuation."
         }
+    }
+    
+    /// Migrate old stored raw values.
+    static func fromStored(_ raw: String?) -> DictationStyle {
+        guard let raw else { return .casual }
+        if raw == "periodsOnly" { return .normal } // old mode → Normal
+        return DictationStyle(rawValue: raw) ?? .casual
     }
 }
 
@@ -122,6 +129,36 @@ struct CustomWord: Identifiable, Codable, Hashable {
     
     init(word: String) {
         self.word = word.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Dictation History
+
+struct DictationHistoryEntry: Identifiable, Codable, Equatable, Hashable {
+    var id: UUID = UUID()
+    var text: String
+    var createdAt: Date = Date()
+    var wordCount: Int
+    var audioSeconds: Double
+    var providerRaw: String
+    
+    init(text: String, audioSeconds: Double, provider: TranscriptionProvider) {
+        self.text = text
+        self.audioSeconds = max(0, audioSeconds)
+        self.wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
+        self.providerRaw = provider.rawValue
+    }
+    
+    var providerDisplayName: String {
+        TranscriptionProvider(rawValue: providerRaw)?.displayName ?? providerRaw
+    }
+    
+    var preview: String {
+        let oneLine = text
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if oneLine.count <= 120 { return oneLine }
+        return String(oneLine.prefix(117)) + "…"
     }
 }
 
@@ -260,6 +297,39 @@ final class AppState {
         didSet { UserDefaults.standard.set(listModeEnabled, forKey: Keys.listMode) }
     }
     
+    /// When on, raw Whisper text is polished by a light Groq LLM (gpt-oss-20b).
+    var aiPolishEnabled: Bool {
+        didSet { UserDefaults.standard.set(aiPolishEnabled, forKey: Keys.aiPolish) }
+    }
+    
+    /// How hard the OSS fixer rewrites: 0 = light word tweaks, 1 = grammar + formal polish.
+    /// Stored 0…1. Only used when `aiPolishEnabled` is true.
+    var aiPolishStrength: Double {
+        didSet {
+            UserDefaults.standard.set(min(1, max(0, aiPolishStrength)), forKey: Keys.aiPolishStrength)
+        }
+    }
+    
+    /// Human label for the strength slider.
+    var aiPolishStrengthLabel: String {
+        switch aiPolishStrength {
+        case ..<0.34: return "Light"
+        case ..<0.67: return "Balanced"
+        default: return "Strong"
+        }
+    }
+    
+    var aiPolishStrengthDetail: String {
+        switch aiPolishStrength {
+        case ..<0.34:
+            return "Minor word fixes only — intention, fillers, near-homophones. Keeps your voice."
+        case ..<0.67:
+            return "Cleanup + light grammar and punctuation. Natural tone, still close to what you said."
+        default:
+            return "Full polish — grammar, smoother phrasing, more formal and polished prose."
+        }
+    }
+    
     // API keys (in-memory + Keychain)
     var openAIKey: String = "" {
         didSet {
@@ -295,6 +365,16 @@ final class AppState {
         }
     }
     
+    /// Newest-first dictation history (capped).
+    var dictationHistory: [DictationHistoryEntry] = [] {
+        didSet {
+            guard !isHydrating else { return }
+            persistDictationHistory()
+        }
+    }
+    
+    static let maxHistoryEntries = 100
+    
     /// Blocks persist during init so empty defaults never wipe disk.
     private var isHydrating = true
     
@@ -309,10 +389,13 @@ final class AppState {
         static let controlPTT = "whisper67.controlPushToTalk"
         static let dictationStyle = "whisper67.dictationStyle"
         static let listMode = "whisper67.listMode"
+        static let aiPolish = "whisper67.aiPolish"
+        static let aiPolishStrength = "whisper67.aiPolishStrength"
         static let openAIKey = "openai_api_key"
         static let groqKey = "groq_api_key"
         static let customWords = "whisper67.customWords"
         static let usageStats = "whisper67.usageStats"
+        static let dictationHistory = "whisper67.dictationHistory"
     }
     
     private init() {
@@ -342,9 +425,12 @@ final class AppState {
         
         showMenuBarIcon = defaults.object(forKey: Keys.menuBar) as? Bool ?? true
         launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
-        // Auto-paste at cursor is the core product behavior — keep ON
-        autoPaste = true
-        defaults.set(true, forKey: Keys.autoPaste)
+        // Default ON; respect user toggle when previously set
+        if defaults.object(forKey: Keys.autoPaste) == nil {
+            autoPaste = true
+        } else {
+            autoPaste = defaults.bool(forKey: Keys.autoPaste)
+        }
         
         // Default ON for Control PTT unless user previously turned it off
         if defaults.object(forKey: Keys.controlPTT) == nil {
@@ -353,13 +439,22 @@ final class AppState {
             controlPushToTalkEnabled = defaults.bool(forKey: Keys.controlPTT)
         }
         
-        if let raw = defaults.string(forKey: Keys.dictationStyle),
-           let style = DictationStyle(rawValue: raw) {
-            dictationStyle = style
-        } else {
-            dictationStyle = .casual
-        }
+        dictationStyle = DictationStyle.fromStored(defaults.string(forKey: Keys.dictationStyle))
         listModeEnabled = defaults.bool(forKey: Keys.listMode)
+        
+        // Default AI polish ON when unset (Wispr-like); needs Groq key at runtime
+        if defaults.object(forKey: Keys.aiPolish) == nil {
+            aiPolishEnabled = true
+        } else {
+            aiPolishEnabled = defaults.bool(forKey: Keys.aiPolish)
+        }
+        
+        // Default strength ~0.35 (light–balanced): intention + light cleanup, not full rewrite
+        if defaults.object(forKey: Keys.aiPolishStrength) == nil {
+            aiPolishStrength = 0.35
+        } else {
+            aiPolishStrength = min(1, max(0, defaults.double(forKey: Keys.aiPolishStrength)))
+        }
         
         // Load dictionary + stats BEFORE clearing hydrate flag (never wipe on boot)
         if let data = defaults.data(forKey: Keys.customWords),
@@ -373,6 +468,13 @@ final class AppState {
             usageStats = stats
         } else {
             usageStats = UsageStats()
+        }
+        
+        if let data = defaults.data(forKey: Keys.dictationHistory),
+           let history = try? JSONDecoder().decode([DictationHistoryEntry].self, from: data) {
+            dictationHistory = history
+        } else {
+            dictationHistory = []
         }
         
         openAIKey = storedOpenAI
@@ -397,14 +499,12 @@ final class AppState {
         }
     }
     
-    /// Prompt hint for Whisper APIs to bias vocabulary (custom dictionary).
+    /// Prompt hint for Whisper APIs to bias vocabulary (custom dictionary + built-ins).
     var dictionaryPrompt: String {
-        let words = customWords.map(\.word).filter { !$0.isEmpty }
-        guard !words.isEmpty else { return "" }
-        return "Vocabulary: " + words.joined(separator: ", ") + "."
+        IntentVocabulary.whisperBiasPrompt(userDictionary: customWords.map(\.word))
     }
     
-    /// Full prompt sent to Whisper: style + optional list bias + dictionary.
+    /// Full prompt sent to Whisper: style + optional list bias + dictionary intention.
     var transcriptionPrompt: String {
         var parts: [String] = [dictationStyle.whisperHint]
         if listModeEnabled {
@@ -415,14 +515,43 @@ final class AppState {
         return parts.joined(separator: " ")
     }
     
-    /// Apply style + list post-processing to a finished transcript.
-    func formatTranscript(_ raw: String) -> String {
-        TranscriptFormatter.format(raw, style: dictationStyle, listMode: listModeEnabled)
+    /// Apply local intention repair + style post-processing (no LLM).
+    /// - Parameter forceList: only true when `ListDetector` says this utterance is a list.
+    func formatTranscript(_ raw: String, forceList: Bool? = nil) -> String {
+        let intended = IntentVocabulary.localRepair(raw, userDictionary: customWords.map(\.word))
+        let useList: Bool
+        if let forceList {
+            useList = forceList
+        } else if listModeEnabled {
+            useList = ListDetector.isLikelyList(intended)
+        } else {
+            useList = false
+        }
+        return TranscriptFormatter.format(intended, style: dictationStyle, listMode: useList)
+    }
+    
+    var hasGroqKey: Bool {
+        !groqKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    
+    /// True when polish is enabled and a Groq key is present.
+    var canRunAIPolish: Bool {
+        aiPolishEnabled && hasGroqKey
+    }
+    
+    /// List mode + Groq available (OSS may format when detector says list).
+    var canRunOSSList: Bool {
+        listModeEnabled && hasGroqKey
     }
     
     var modeStatusLabel: String {
         var label = dictationStyle.displayName
         if listModeEnabled { label += " · Lists" }
+        if canRunAIPolish {
+            label += " · AI \(aiPolishStrengthLabel)"
+        } else if aiPolishEnabled {
+            label += " · AI needs Groq"
+        }
         return label
     }
     
@@ -448,6 +577,35 @@ final class AppState {
         stats.record(text: text, audioSeconds: audioSeconds, usedCloudAPI: provider.isCloud)
         usageStats = stats
         persistUsageStats()
+        appendHistory(text: text, audioSeconds: audioSeconds)
+    }
+    
+    func appendHistory(text: String, audioSeconds: Double) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        
+        var next = dictationHistory
+        next.insert(
+            DictationHistoryEntry(text: trimmed, audioSeconds: audioSeconds, provider: provider),
+            at: 0
+        )
+        if next.count > Self.maxHistoryEntries {
+            next = Array(next.prefix(Self.maxHistoryEntries))
+        }
+        dictationHistory = next
+        persistDictationHistory()
+    }
+    
+    func removeHistoryEntry(_ entry: DictationHistoryEntry) {
+        var next = dictationHistory
+        next.removeAll { $0.id == entry.id }
+        dictationHistory = next
+        persistDictationHistory()
+    }
+    
+    func clearDictationHistory() {
+        dictationHistory = []
+        persistDictationHistory()
     }
     
     func resetUsageStats() {
@@ -469,6 +627,17 @@ final class AppState {
     private func persistUsageStats() {
         if let data = try? JSONEncoder().encode(usageStats) {
             UserDefaults.standard.set(data, forKey: Keys.usageStats)
+        }
+    }
+    
+    private func persistDictationHistory() {
+        do {
+            let data = try JSONEncoder().encode(dictationHistory)
+            UserDefaults.standard.set(data, forKey: Keys.dictationHistory)
+            UserDefaults.standard.synchronize()
+            print("💾 History saved (\(dictationHistory.count) entries)")
+        } catch {
+            print("❌ History save failed: \(error)")
         }
     }
 }

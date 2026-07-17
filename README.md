@@ -1,43 +1,90 @@
 # Whisper67
 
-System-wide AI dictation for macOS — Superwhisper / Wispr Flow style.
+System-wide voice dictation for macOS. Hold **Control**, speak, release — clean text pastes where your cursor is.
 
-Hold **Control** to talk, double-tap for sticky mode, or use a classic hotkey. Transcripts paste at your cursor. Local WhisperKit, OpenAI, or Groq.
+**Download (macOS):** [Whisper67-1.0.0.dmg](https://github.com/damondeng8/Whisper67/releases/latest/download/Whisper67-1.0.0.dmg)
+
+---
 
 ## Install (DMG)
 
-1. Download **Whisper67-x.y.z.dmg** from [Releases](../../releases)
+1. Download [Whisper67-1.0.0.dmg](https://github.com/damondeng8/Whisper67/releases/latest/download/Whisper67-1.0.0.dmg)
 2. Open the DMG and drag **Whisper67** into **Applications**
-3. Launch Whisper67 and grant **Microphone** + **Accessibility** (and Input Monitoring if prompted)
+3. Open **Whisper67** from Applications  
+   - If Gatekeeper blocks it: right‑click the app → **Open** → **Open**
+4. Grant when prompted:
+   - **Microphone**
+   - **Accessibility** (required for hotkeys + paste)
+   - **Input Monitoring** if macOS asks
 
-> First launch from the internet: right-click → **Open** if Gatekeeper blocks an unsigned build.
+Leave the app running (menu bar waveform). You don’t need the settings window open to dictate.
 
-## Features
+---
 
-- Control hold / double-tap sticky + custom toggle hotkey
-- Floating glass pill with live waveform
-- Dictation modes: Formal · Casual · Periods only · Auto list
-- Custom dictionary
-- Auto-paste at caret
-- Local (WhisperKit) or cloud (Groq / OpenAI)
+## How to use
+
+| Action | What it does |
+|--------|----------------|
+| **Hold ⌃ Control** | Push-to-talk — release to transcribe & paste |
+| **Double-tap ⌃** | Sticky dictation — speak freely |
+| **Enter** | Send (sticky or hold) |
+| **Esc** | Cancel |
+| **⌥ Space** (default) | Toggle sticky start/send (change in Settings) |
+
+Text is pasted at the **caret** in the app you were using (Notes, Slack, Cursor, browsers, etc.).
+
+### Settings (menu bar → Open Whisper67)
+
+- **Home** — status, shortcuts, engine
+- **History** — past dictations; copy any entry
+- **Modes** — Casual / Normal / Formal, Auto list, OSS fixer strength
+- **API** — Groq or OpenAI key for cloud Whisper (+ optional OSS polish)
+- **Dictionary** — preferred spellings (names, products)
+- **General** — auto-paste, menu bar icon, launch at login
+
+### Engines
+
+| Engine | Notes |
+|--------|--------|
+| **Local** | On-device WhisperKit (no key) |
+| **Groq** | Fast cloud Whisper — free tier at [console.groq.com](https://console.groq.com) |
+| **OpenAI** | Cloud Whisper API |
+
+Optional **OSS fixer** (Groq `openai/gpt-oss-20b`): cleans fillers, intention, lists. Toggle + strength slider under **Modes**.
+
+---
 
 ## Build from source
 
+**Requirements:** macOS 14+, Xcode 15+
+
 ```bash
-./scripts/build_dmg.sh
-# → dist/Whisper67-<version>.dmg
+git clone https://github.com/damondeng8/Whisper67.git
+cd Whisper67
+open Whisper67.xcodeproj
 ```
 
-Requirements: macOS 14+, Xcode 15+
+In Xcode: select the **Whisper67** scheme → **Run** (or Product → Archive).
 
-## Permissions
+### Build a signed DMG
 
-Grant for `/Applications/Whisper67.app`:
+```bash
+./scripts/build_dmg.sh
+# → dist/Whisper67-1.0.0.dmg
+```
 
-- Microphone
-- Accessibility
-- Input Monitoring (if listed)
+Uses **Developer ID Application** if installed in Keychain (with microphone entitlements). Otherwise ad‑hoc sign.
+
+---
+
+## Privacy
+
+- **Local engine:** audio stays on your Mac  
+- **Cloud engine:** audio is sent to OpenAI or Groq for transcription (and OSS polish if enabled)  
+- Dictionary, history, and settings stay on your machine (UserDefaults / Keychain for API keys)
+
+---
 
 ## License
 
-MIT
+Personal / source-available project. Use at your own risk. Not affiliated with OpenAI, Groq, or Apple.

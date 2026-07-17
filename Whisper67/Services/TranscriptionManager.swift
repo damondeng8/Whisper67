@@ -32,13 +32,16 @@ final class TranscriptionManager {
     }
     
     private var isConfirming = false
+    /// Prevents double paste if completion is delivered twice.
+    private var lastCompletedFingerprint: String = ""
+    private var lastCompletedAt: Date = .distantPast
     
     private init() {
         setupServices()
     }
     
     private func setupServices() {
-        // Control hold / double-tap
+        // Control hold / double-tap (⌃ only — Enter/Esc via sessionKeys)
         controlInput.onStart = { [weak self] in
             Task { @MainActor in
                 await self?.beginDictation(sticky: ControlDictationInput.shared.isSticky)
@@ -49,16 +52,11 @@ final class TranscriptionManager {
                 await self?.confirmDictation()
             }
         }
-        controlInput.onCancel = { [weak self] in
-            Task { @MainActor in
-                await self?.cancelTranscription()
-            }
-        }
         
-        // Dedicated Enter / Esc while any session is open (sticky or hold)
+        // Sole Enter / Esc owner while any session is open
         sessionKeys.onConfirm = { [weak self] in
             Task { @MainActor in
-                print("⏎ sessionKeys.onConfirm isTranscribing=\(self?.isTranscribing ?? false) sticky=\(self?.isStickySession ?? false)")
+                AppLog.debug("⏎ sessionKeys confirm sticky=\(self?.isStickySession ?? false)")
                 await self?.confirmDictation()
             }
         }
@@ -76,8 +74,8 @@ final class TranscriptionManager {
             }
         }
         
-        whisperService.onTranscriptionComplete = { [weak self] text, duration in
-            self?.handleTranscriptionComplete(text, duration: duration)
+        whisperService.onOutcome = { [weak self] outcome in
+            self?.handleOutcome(outcome)
         }
         
         whisperService.onAudioLevelUpdate = { [weak self] level in
@@ -87,20 +85,6 @@ final class TranscriptionManager {
         whisperService.onAudioBandsUpdate = { [weak self] bands in
             self?.liveAudioBands = bands
             self?.overlayManager.updateAudioBands(bands)
-        }
-        
-        whisperService.onError = { [weak self] message in
-            DispatchQueue.main.async {
-                self?.sessionKeys.stop()
-                self?.lastError = message
-                self?.statusMessage = message
-                self?.overlayManager.showError(message)
-                self?.controlInput.isRecording = false
-                self?.controlInput.resetSessionFlags()
-                self?.isTranscribing = false
-                self?.isConfirming = false
-                self?.isStickySession = false
-            }
         }
         
         controlInput.setup()
@@ -201,12 +185,19 @@ final class TranscriptionManager {
         print("🎙 beginDictation sticky=\(sticky) provider=\(appState.provider.rawValue)")
         
         #if os(macOS)
-        if !checkMicrophonePermission() {
-            PermissionManager.shared.requestMicrophoneFromUser()
-            lastError = "Microphone permission required"
-            statusMessage = lastError ?? ""
-            overlayManager.flashMessage("Allow Microphone in System Settings")
-            return
+        // Always re-check (TCC can change while Settings is open)
+        PermissionManager.shared.refresh()
+        if !AudioRecorderService.microphoneAuthorized() {
+            // Try one async request if undetermined
+            let granted = await AudioRecorderService.requestMicrophoneAccess()
+            PermissionManager.shared.refresh()
+            if !granted && !AudioRecorderService.microphoneAuthorized() {
+                PermissionManager.shared.requestMicrophoneFromUser()
+                lastError = "Microphone permission required"
+                statusMessage = lastError ?? ""
+                overlayManager.flashMessage("Allow Microphone for Whisper67 in System Settings")
+                return
+            }
         }
         #endif
         
@@ -251,7 +242,7 @@ final class TranscriptionManager {
         controlInput.isRecording = false
         liveAudioLevel = 0
         liveAudioBands = Array(repeating: 0, count: 24)
-        statusMessage = "Transcribing…"
+        statusMessage = appState.canRunAIPolish ? "Transcribing + polish…" : "Transcribing…"
         overlayManager.setProcessing()
         
         await whisperService.stopAndTranscribe(using: appState)
@@ -329,7 +320,7 @@ final class TranscriptionManager {
         updateStatusMessage()
     }
     
-    private func handleTranscriptionComplete(_ text: String, duration: Double) {
+    private func handleOutcome(_ outcome: TranscriptionOutcome) {
         DispatchQueue.main.async {
             self.sessionKeys.stop()
             self.isTranscribing = false
@@ -338,43 +329,58 @@ final class TranscriptionManager {
             self.controlInput.isRecording = false
             self.controlInput.resetSessionFlags()
             
-            let errorMessages = [
-                "No transcription available",
-                "Transcription failed",
-                "Recording too short",
-                "No audio detected",
-                "Audio too short",
-                "No speech detected",
-                "Add an API key"
-            ]
-            let isError = text.isEmpty || errorMessages.contains { text.localizedCaseInsensitiveContains($0) }
-            
-            if isError {
-                self.lastError = text
-                self.statusMessage = text
-                self.overlayManager.showError(text)
+            switch outcome {
+            case .failure(let message, _):
+                self.lastError = message
+                self.statusMessage = message
+                self.overlayManager.showError(message)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                     self.overlayManager.hideOverlay()
                     self.updateStatusMessage()
                 }
-                return
-            }
-            
-            self.lastTranscript = text
-            self.appState.recordUsage(text: text, audioSeconds: duration)
-            
-            let wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
-            
-            // Force auto-paste at cursor every time
-            self.appState.autoPaste = true
-            self.statusMessage = "Pasting \(wordCount) words…"
-            self.overlayManager.hideOverlay()
-            
-            // Paste immediately — ClipboardService hides overlay windows itself
-            self.clipboardService.copyAndPaste(text)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                self.statusMessage = "Pasted \(wordCount) words"
-                self.updateStatusMessage()
+                
+            case .success(let text, let duration):
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    self.lastError = "No speech detected"
+                    self.statusMessage = "No speech detected"
+                    self.overlayManager.showError("No speech detected")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.overlayManager.hideOverlay()
+                        self.updateStatusMessage()
+                    }
+                    return
+                }
+                
+                // Guard: identical completion within 2s
+                let now = Date()
+                if trimmed == self.lastCompletedFingerprint,
+                   now.timeIntervalSince(self.lastCompletedAt) < 2.0 {
+                    AppLog.debug("⏭ Ignoring duplicate transcription completion")
+                    self.overlayManager.hideOverlay()
+                    return
+                }
+                self.lastCompletedFingerprint = trimmed
+                self.lastCompletedAt = now
+                
+                self.lastTranscript = trimmed
+                self.appState.recordUsage(text: trimmed, audioSeconds: duration)
+                
+                let wordCount = trimmed.split { $0.isWhitespace || $0.isNewline }.count
+                self.overlayManager.hideOverlay()
+                
+                if self.appState.autoPaste {
+                    self.statusMessage = "Pasting \(wordCount) words…"
+                    self.clipboardService.copyAndPaste(trimmed)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+                        self.statusMessage = "Pasted \(wordCount) words"
+                        self.updateStatusMessage()
+                    }
+                } else {
+                    _ = self.clipboardService.copyToClipboard(trimmed)
+                    self.statusMessage = "Copied \(wordCount) words"
+                    self.updateStatusMessage()
+                }
             }
         }
     }
@@ -389,13 +395,6 @@ final class TranscriptionManager {
         globalHotkey.setup()
         updateStatusMessage()
     }
-    
-    #if os(macOS)
-    private func checkMicrophonePermission() -> Bool {
-        PermissionManager.shared.refresh()
-        return PermissionManager.shared.microphoneGranted
-    }
-    #endif
 }
 
 // MARK: - Proxy for Home permission rows

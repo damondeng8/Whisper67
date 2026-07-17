@@ -18,7 +18,6 @@
 		1A2B3C4D5E6F7890ABCDEF27 /* HotkeysTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF28 /* HotkeysTab.swift */; };
 		1A2B3C4D5E6F7890ABCDEF29 /* PerformanceTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF2A /* PerformanceTab.swift */; };
 		1A2B3C4D5E6F7890ABCDEF2B /* GeneralTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF2C /* GeneralTab.swift */; };
-		1A2B3C4D5E6F7890ABCDEF2D /* AudioDeviceService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF2E /* AudioDeviceService.swift */; };
 		1A2B3C4D5E6F7890ABCDEF2F /* TranscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF30 /* TranscriptionManager.swift */; };
 		1A2B3C4D5E6F7890ABCDEF31 /* GlobalHotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF32 /* GlobalHotkeyService.swift */; };
 		1A2B3C4D5E6F7890ABCDEF33 /* ClipboardService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF34 /* ClipboardService.swift */; };
@@ -35,6 +34,12 @@
 		1A2B3C4D5E6F7890ABCDEF52 /* TranscriptFormatter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF53 /* TranscriptFormatter.swift */; };
 		1A2B3C4D5E6F7890ABCDEF54 /* ModesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF55 /* ModesTab.swift */; };
 		1A2B3C4D5E6F7890ABCDEF56 /* WaveformShaper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF57 /* WaveformShaper.swift */; };
+		1A2B3C4D5E6F7890ABCDEF58 /* TranscriptCleanupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF59 /* TranscriptCleanupService.swift */; };
+		1A2B3C4D5E6F7890ABCDEF5A /* IntentVocabulary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF5B /* IntentVocabulary.swift */; };
+		1A2B3C4D5E6F7890ABCDEF5C /* ListDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF5D /* ListDetector.swift */; };
+		1A2B3C4D5E6F7890ABCDEF5E /* HistoryTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF5F /* HistoryTab.swift */; };
+		1A2B3C4D5E6F7890ABCDEF60 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF61 /* AppLog.swift */; };
+		1A2B3C4D5E6F7890ABCDEF62 /* TranscriptionOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF63 /* TranscriptionOutcome.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -50,7 +55,6 @@
 		1A2B3C4D5E6F7890ABCDEF28 /* HotkeysTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeysTab.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF2A /* PerformanceTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceTab.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF2C /* GeneralTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeneralTab.swift; sourceTree = "<group>"; };
-		1A2B3C4D5E6F7890ABCDEF2E /* AudioDeviceService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceService.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF30 /* TranscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionManager.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF32 /* GlobalHotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotkeyService.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF34 /* ClipboardService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardService.swift; sourceTree = "<group>"; };
@@ -67,6 +71,12 @@
 		1A2B3C4D5E6F7890ABCDEF53 /* TranscriptFormatter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptFormatter.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF55 /* ModesTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModesTab.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF57 /* WaveformShaper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WaveformShaper.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF59 /* TranscriptCleanupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptCleanupService.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF5B /* IntentVocabulary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentVocabulary.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF5D /* ListDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListDetector.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF5F /* HistoryTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryTab.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF61 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF63 /* TranscriptionOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionOutcome.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,6 +134,7 @@
 				1A2B3C4D5E6F7890ABCDEF2A /* PerformanceTab.swift */,
 				1A2B3C4D5E6F7890ABCDEF2C /* GeneralTab.swift */,
 				1A2B3C4D5E6F7890ABCDEF55 /* ModesTab.swift */,
+				1A2B3C4D5E6F7890ABCDEF5F /* HistoryTab.swift */,
 				1A2B3C4D5E6F7890ABCDEF36 /* TranscriptionOverlayView.swift */,
 			);
 			path = Views;
@@ -143,7 +154,6 @@
 				1A2B3C4D5E6F7890ABCDEF22 /* WhisperService.swift */,
 				1A2B3C4D5E6F7890ABCDEF43 /* CloudWhisperAPI.swift */,
 				1A2B3C4D5E6F7890ABCDEF45 /* AudioRecorderService.swift */,
-				1A2B3C4D5E6F7890ABCDEF2E /* AudioDeviceService.swift */,
 				1A2B3C4D5E6F7890ABCDEF30 /* TranscriptionManager.swift */,
 				1A2B3C4D5E6F7890ABCDEF32 /* GlobalHotkeyService.swift */,
 				1A2B3C4D5E6F7890ABCDEF34 /* ClipboardService.swift */,
@@ -151,6 +161,11 @@
 				1A2B3C4D5E6F7890ABCDEF4F /* ControlDictationInput.swift */,
 				1A2B3C4D5E6F7890ABCDEF51 /* PermissionManager.swift */,
 				1A2B3C4D5E6F7890ABCDEF53 /* TranscriptFormatter.swift */,
+				1A2B3C4D5E6F7890ABCDEF59 /* TranscriptCleanupService.swift */,
+				1A2B3C4D5E6F7890ABCDEF5B /* IntentVocabulary.swift */,
+				1A2B3C4D5E6F7890ABCDEF5D /* ListDetector.swift */,
+				1A2B3C4D5E6F7890ABCDEF63 /* TranscriptionOutcome.swift */,
+				1A2B3C4D5E6F7890ABCDEF61 /* AppLog.swift */,
 				1A2B3C4D5E6F7890ABCDEF57 /* WaveformShaper.swift */,
 			);
 			path = Services;
@@ -237,7 +252,6 @@
 				1A2B3C4D5E6F7890ABCDEF23 /* GlassmorphicComponents.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF27 /* HotkeysTab.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF2B /* GeneralTab.swift in Sources */,
-				1A2B3C4D5E6F7890ABCDEF2D /* AudioDeviceService.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF2F /* TranscriptionManager.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF31 /* GlobalHotkeyService.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF33 /* ClipboardService.swift in Sources */,
@@ -252,6 +266,12 @@
 				1A2B3C4D5E6F7890ABCDEF4E /* ControlDictationInput.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF50 /* PermissionManager.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF52 /* TranscriptFormatter.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF58 /* TranscriptCleanupService.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF5A /* IntentVocabulary.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF5C /* ListDetector.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF62 /* TranscriptionOutcome.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF60 /* AppLog.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF5E /* HistoryTab.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF54 /* ModesTab.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF56 /* WaveformShaper.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF01 /* Whisper67App.swift in Sources */,

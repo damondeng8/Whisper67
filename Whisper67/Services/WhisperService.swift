@@ -33,14 +33,16 @@ class WhisperService {
     
     private let recorder = AudioRecorderService.shared
     private var isProcessing = false
+    /// Bumped on cancel so in-flight STT/OSS results are discarded (no paste).
+    private var jobID: UInt64 = 0
     /// Floor so accidental blips still fail fast without padding real utterances.
     private let minimumRecordingDuration: TimeInterval = 0.18
     
-    var onTranscriptionComplete: ((String, Double) -> Void)?
+    /// Typed completion (success or failure). Prefer this over stringly errors.
+    var onOutcome: ((TranscriptionOutcome) -> Void)?
     var onAudioLevelUpdate: ((Float) -> Void)?
     /// Multi-band levels for the live waveform (same count as UI bars)
     var onAudioBandsUpdate: (([Float]) -> Void)?
-    var onError: ((String) -> Void)?
     
     init() {
         // Defer heavy local model load until local provider is used
@@ -91,9 +93,9 @@ class WhisperService {
     
     private func setupAudioPermission() {
         #if os(macOS)
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        if status == .notDetermined {
-            AVCaptureDevice.requestAccess(for: .audio) { granted in
+        if !AudioRecorderService.microphoneAuthorized() {
+            Task {
+                let granted = await AudioRecorderService.requestMicrophoneAccess()
                 print("🎤 Microphone permission: \(granted)")
             }
         }
@@ -128,21 +130,18 @@ class WhisperService {
         isProcessing = true
         defer { isProcessing = false }
         
+        jobID &+= 1
+        let myJob = jobID
+        
         let (url, duration) = recorder.stop()
         guard let url else {
-            await MainActor.run {
-                isTranscribing = false
-                onError?("No recording captured")
-            }
+            await finish(job: myJob, error: "No recording captured", duration: 0)
             return
         }
         
         if duration < minimumRecordingDuration {
             try? FileManager.default.removeItem(at: url)
-            await MainActor.run {
-                isTranscribing = false
-                onTranscriptionComplete?("Recording too short", duration)
-            }
+            await finish(job: myJob, error: "Recording too short", duration: duration)
             return
         }
         
@@ -155,10 +154,7 @@ class WhisperService {
                 let samples = try readAndResampleAudio(from: url)
                 try? FileManager.default.removeItem(at: url)
                 guard !samples.isEmpty else {
-                    await MainActor.run {
-                        isTranscribing = false
-                        onTranscriptionComplete?("No audio detected", duration)
-                    }
+                    await finish(job: myJob, error: "No audio detected", duration: duration)
                     return
                 }
                 text = try await transcribeLocal(samples: samples, prompt: appState.transcriptionPrompt)
@@ -177,26 +173,75 @@ class WhisperService {
                 audioSeconds = result.durationSeconds > 0 ? result.durationSeconds : duration
             }
             
-            // Apply style + list modes (deterministic post-process)
-            let styled = appState.formatTranscript(text)
+            guard myJob == jobID else {
+                print("⏭ Discarded stale transcription job \(myJob)")
+                return
+            }
+            
+            let styled = await finalizeTranscript(text, appState: appState)
+            
+            guard myJob == jobID else {
+                print("⏭ Discarded stale transcription job \(myJob) after polish")
+                return
+            }
             
             await MainActor.run {
                 transcribedText = styled
                 isTranscribing = false
-                onTranscriptionComplete?(styled, audioSeconds)
+                onOutcome?(.success(text: styled, durationSeconds: audioSeconds))
             }
         } catch {
             try? FileManager.default.removeItem(at: url)
-            print("❌ Transcription failed: \(error)")
-            await MainActor.run {
-                isTranscribing = false
-                onError?(error.localizedDescription)
-                onTranscriptionComplete?("Transcription failed: \(error.localizedDescription)", duration)
-            }
+            AppLog.info("❌ Transcription failed: \(error)")
+            await finish(job: myJob, error: error.localizedDescription, duration: duration)
+        }
+    }
+    
+    /// One place for list detect → optional OSS → style (keeps pipeline readable).
+    private func finalizeTranscript(_ text: String, appState: AppState) async -> String {
+        let listDetection = ListDetector.analyze(text)
+        let listLikely = appState.listModeEnabled && listDetection.isLikelyList
+        
+        let runOSS = appState.canRunAIPolish
+            || (appState.listModeEnabled && appState.hasGroqKey && listDetection.isLikelyList)
+        
+        if runOSS {
+            let strength = appState.canRunAIPolish
+                ? appState.aiPolishStrength
+                : min(appState.aiPolishStrength, 0.30)
+            let polished = await TranscriptCleanupService.polish(
+                text,
+                style: appState.dictationStyle,
+                listModeEnabled: appState.listModeEnabled,
+                listLikely: listLikely,
+                dictionaryWords: appState.customWords.map(\.word),
+                groqAPIKey: appState.groqKey,
+                strength: strength
+            )
+            // Prefer OSS wording; always enforce local style (list markers preserved)
+            let base = polished == text
+                ? text
+                : polished.trimmingCharacters(in: .whitespacesAndNewlines)
+            return TranscriptFormatter.format(
+                base,
+                style: appState.dictationStyle,
+                listMode: listLikely && polished == text
+            )
+        }
+        
+        return appState.formatTranscript(text, forceList: listLikely)
+    }
+    
+    private func finish(job: UInt64, error: String, duration: Double) async {
+        guard job == jobID else { return }
+        await MainActor.run {
+            isTranscribing = false
+            onOutcome?(.failure(message: error, durationSeconds: duration))
         }
     }
     
     func cancelRecording() {
+        jobID &+= 1 // invalidate any in-flight stopAndTranscribe
         recorder.cancel()
         isTranscribing = false
     }
@@ -234,17 +279,11 @@ class WhisperService {
         for result in results {
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !text.isEmpty {
-                return applyCustomWordHints(text, prompt: prompt)
+                // Style/dictionary applied in finalizeTranscript (formatter + optional OSS)
+                return text
             }
         }
         return "No speech detected"
-    }
-    
-    /// Light post-processing: if custom words appear as close phonetic misses, leave as-is;
-    /// primarily cloud APIs use prompt — this is a soft pass-through.
-    private func applyCustomWordHints(_ text: String, prompt: String) -> String {
-        _ = prompt
-        return text
     }
     
     private func readAndResampleAudio(from url: URL) throws -> [Float] {

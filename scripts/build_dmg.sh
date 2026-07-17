@@ -31,14 +31,16 @@ xcodebuild \
 
 test -d "$APP_SRC"
 
-# Prefer Developer ID Application if present
+ENTITLEMENTS="$ROOT/Whisper67/Whisper67.entitlements"
+# Prefer Developer ID Application if present — MUST re-apply entitlements
+# (re-signing without --entitlements strips mic access under hardened runtime)
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
   ID=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-  echo "▸ Signing with $ID"
-  codesign --force --deep --options runtime --sign "$ID" "$APP_SRC"
+  echo "▸ Signing with $ID + entitlements"
+  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$ID" "$APP_SRC"
 else
-  echo "▸ Ad-hoc signing (no Developer ID found)"
-  codesign --force --deep --sign - "$APP_SRC"
+  echo "▸ Ad-hoc signing with entitlements (no Developer ID found)"
+  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP_SRC"
 fi
 
 echo "▸ codesign verify"

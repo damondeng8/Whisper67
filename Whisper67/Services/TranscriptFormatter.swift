@@ -11,7 +11,6 @@ enum TranscriptFormatter {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return text }
         
-        // Skip error / system strings
         let skip = [
             "No speech detected", "Recording too short", "No audio detected",
             "Transcription failed", "No transcription available", "Add an API key"
@@ -26,87 +25,112 @@ enum TranscriptFormatter {
             text = formatAsList(text)
         }
         
-        switch style {
-        case .casual:
-            text = applyCasual(text)
-        case .formal:
-            text = applyFormal(text)
-        case .periodsOnly:
-            text = applyPeriodsOnly(text)
-        }
+        // Style per line so "1. Item" markers survive Normal/Casual (never "1, Item")
+        text = applyStylePreservingListMarkers(text, style: style)
         
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     // MARK: - Style
     
-    /// Natural spoken tone — light cleanup only.
-    private static func applyCasual(_ text: String) -> String {
-        var t = text
-        // Soft sentence starts
-        t = capitalizeSentenceStarts(t, forceAll: false)
-        // Collapse double spaces
-        t = cleanupWhitespace(t)
-        return t
+    private static func applyStylePreservingListMarkers(_ text: String, style: DictationStyle) -> String {
+        let lines = text.components(separatedBy: "\n")
+        return lines.map { line in
+            if let (prefix, body) = splitListMarker(line) {
+                let styledBody = applyStyleToProse(body, style: style)
+                return prefix + styledBody
+            }
+            return applyStyleToProse(line, style: style)
+        }.joined(separator: "\n")
     }
     
-    /// Polished prose: sentence case, proper terminal punctuation.
+    /// "1. " / "12) " prefix if present.
+    private static func splitListMarker(_ line: String) -> (String, String)? {
+        guard let regex = try? NSRegularExpression(pattern: #"^(\d+[.)]\s+)(.*)$"#) else { return nil }
+        let ns = line as NSString
+        guard let m = regex.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)),
+              m.numberOfRanges == 3 else { return nil }
+        return (ns.substring(with: m.range(at: 1)), ns.substring(with: m.range(at: 2)))
+    }
+    
+    private static func applyStyleToProse(_ text: String, style: DictationStyle) -> String {
+        switch style {
+        case .casual: return applyCasual(text)
+        case .normal: return applyNormal(text)
+        case .formal: return applyFormal(text)
+        }
+    }
+    
+    /// Casual / chat: mostly lowercase, keep contractions & informal voice.
+    private static func applyCasual(_ text: String) -> String {
+        var t = text
+        for ch in ["!", "?", ";", ":"] {
+            t = t.replacingOccurrences(of: ch, with: ",")
+        }
+        t = t.replacingOccurrences(of: ". ", with: ", ")
+        t = t.replacingOccurrences(of: ".", with: "")
+        
+        t = cleanupWhitespace(t)
+        t = t.lowercased()
+        
+        while t.contains(",,") { t = t.replacingOccurrences(of: ",,", with: ",") }
+        t = t.replacingOccurrences(of: " ,", with: ",")
+        while t.hasSuffix(",") || t.hasSuffix(" ") {
+            t = String(t.dropLast()).trimmingCharacters(in: .whitespaces)
+        }
+        return cleanupWhitespace(t)
+    }
+    
+    /// Normal: commas for pauses, no periods / ! / ?
+    private static func applyNormal(_ text: String) -> String {
+        var t = text
+        
+        let toComma = ["!", "?", ";", ":", "—", "–", "…", "."]
+        for ch in toComma {
+            t = t.replacingOccurrences(of: ch, with: ",")
+        }
+        
+        var out = ""
+        out.reserveCapacity(t.count)
+        for ch in t {
+            if ch.isLetter || ch.isNumber || ch == "," || ch == "'" || ch == "’" || ch == "\n" {
+                out.append(ch)
+            } else if ch.isWhitespace {
+                out.append(" ")
+            }
+        }
+        
+        t = cleanupWhitespace(out)
+        while t.contains(",,") { t = t.replacingOccurrences(of: ",,", with: ",") }
+        t = t.replacingOccurrences(of: " ,", with: ",")
+        t = t.replacingOccurrences(of: ",", with: ", ")
+        t = cleanupWhitespace(t)
+        while t.contains(", ,") { t = t.replacingOccurrences(of: ", ,", with: ", ") }
+        while t.hasSuffix(",") || t.hasSuffix(", ") {
+            if t.hasSuffix(", ") { t = String(t.dropLast(2)) }
+            else { t = String(t.dropLast()) }
+            t = t.trimmingCharacters(in: .whitespaces)
+        }
+        
+        t = capitalizeFirstLetter(t)
+        return cleanupWhitespace(t)
+    }
+    
+    /// Formal: full caps rules, periods, expanded contractions.
     private static func applyFormal(_ text: String) -> String {
         var t = text
         t = expandCasualContractions(t)
         t = capitalizeSentenceStarts(t, forceAll: true)
-        t = ensureSentencePunctuation(t)
-        t = cleanupWhitespace(t)
-        return t
-    }
-    
-    /// Formal wording feel, but only periods as real punctuation (no , ! ? ; : —).
-    private static func applyPeriodsOnly(_ text: String) -> String {
-        var t = text
-        
-        // Turn common clause breaks into periods before stripping
-        let swap: [(String, String)] = [
-            ("!", "."), ("?", "."), (";", "."), (":", "."),
-            ("—", "."), ("–", "."), ("…", ".")
-        ]
-        for (from, to) in swap {
-            t = t.replacingOccurrences(of: from, with: to)
-        }
-        
-        // Remove remaining fancy punctuation; keep letters, digits, spaces, periods, apostrophes in words
-        var out = ""
-        out.reserveCapacity(t.count)
-        for ch in t {
-            if ch.isLetter || ch.isNumber || ch == "." || ch == "'" || ch == "’" || ch == "\n" {
-                out.append(ch)
-            } else if ch.isWhitespace {
-                out.append(" ")
-            } else if ch == "," {
-                // Commas → space (user wants mainly periods, not commas)
-                out.append(" ")
-            }
-            // drop quotes, parens, etc.
-        }
-        
-        t = cleanupWhitespace(out)
-        // Collapse " . " and multiple periods
-        while t.contains("..") { t = t.replacingOccurrences(of: "..", with: ".") }
-        t = t.replacingOccurrences(of: " .", with: ".")
-        t = capitalizeSentenceStarts(t, forceAll: true)
-        t = ensureSentencePunctuation(t, periodOnly: true)
+        t = ensureSentencePunctuation(t, periodOnly: false)
         t = cleanupWhitespace(t)
         return t
     }
     
     // MARK: - List mode
     
-    /// Turn spoken list-like speech into:
-    /// 1. item
-    /// 2. item
     private static func formatAsList(_ text: String) -> String {
         let items = splitListItems(text)
         guard items.count >= 2 else {
-            // Single item — still number if it looks list-y
             if looksLikeExplicitList(text) {
                 let cleaned = stripListMarkers(text)
                 return cleaned.isEmpty ? text : "1. \(cleaned)"
@@ -129,18 +153,11 @@ enum TranscriptFormatter {
     private static func splitListItems(_ text: String) -> [String] {
         var working = text
         
-        // Normalize spoken ordinals / separators into a pipe delimiter
         let patterns: [(String, String)] = [
-            // "number one", "number 1"
             (#"(?i)\bnumber\s+(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\b[.:]?\s*"#, "|"),
-            // "first,", "secondly", "third:"
             (#"(?i)\b(firstly|secondly|thirdly|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\b[.:,]?\s*"#, "|"),
-            // "1.", "2)" at line/item starts mid-string
             (#"(?<=^|[\n.])\s*\d+[.)]\s+"#, "|"),
-            // "next,", "also,", "then,", "plus,"
             (#"(?i)\b(next|also|then|plus|another|and then)\b[.,]?\s+"#, "|"),
-            // " and " between short phrases often means list (only if enough parts later)
-            // applied carefully after other splits
         ]
         
         for (pattern, replacement) in patterns {
@@ -159,27 +176,6 @@ enum TranscriptFormatter {
             .map { cleanupWhitespace(String($0)) }
             .filter { !$0.isEmpty }
         
-        // If still one blob, try splitting on commas for list-like content
-        if parts.count < 2 {
-            let commaParts = text
-                .components(separatedBy: ",")
-                .map { cleanupWhitespace($0) }
-                .filter { !$0.isEmpty }
-            // Only treat as list if 3+ short-ish items
-            if commaParts.count >= 3, commaParts.allSatisfy({ $0.split(separator: " ").count <= 12 }) {
-                parts = commaParts
-            }
-        }
-        
-        // "A and B and C" style
-        if parts.count < 2 {
-            let andParts = splitOnStandaloneAnd(text)
-            if andParts.count >= 3 {
-                parts = andParts
-            }
-        }
-        
-        // Newlines already
         if parts.count < 2 {
             let lines = text
                 .components(separatedBy: .newlines)
@@ -189,27 +185,6 @@ enum TranscriptFormatter {
         }
         
         return parts
-    }
-    
-    private static func splitOnStandaloneAnd(_ text: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: #"(?i)\s+and\s+"#) else {
-            return [text]
-        }
-        let ns = text as NSString
-        let matches = regex.matches(in: text, range: NSRange(location: 0, length: ns.length))
-        guard matches.count >= 2 else { return [text] }
-        
-        var result: [String] = []
-        var last = 0
-        for m in matches {
-            let piece = ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            let cleaned = cleanupWhitespace(piece)
-            if !cleaned.isEmpty { result.append(cleaned) }
-            last = m.range.location + m.range.length
-        }
-        let tail = cleanupWhitespace(ns.substring(from: last))
-        if !tail.isEmpty { result.append(tail) }
-        return result
     }
     
     private static func stripListMarkers(_ item: String) -> String {
@@ -229,11 +204,9 @@ enum TranscriptFormatter {
             }
         }
         s = cleanupWhitespace(s)
-        // Capitalize first letter of list item
         if let first = s.first {
             s = String(first).uppercased() + s.dropFirst()
         }
-        // Trim trailing list junk
         while s.hasSuffix(",") || s.hasSuffix(";") {
             s = String(s.dropLast()).trimmingCharacters(in: .whitespaces)
         }
@@ -247,14 +220,20 @@ enum TranscriptFormatter {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
         while t.contains("  ") { t = t.replacingOccurrences(of: "  ", with: " ") }
-        // Space before newline cleanup
         t = t.replacingOccurrences(of: " \n", with: "\n")
         t = t.replacingOccurrences(of: "\n ", with: "\n")
         return t.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
+    private static func capitalizeFirstLetter(_ text: String) -> String {
+        guard let idx = text.firstIndex(where: { $0.isLetter }) else { return text }
+        var chars = Array(text)
+        let i = text.distance(from: text.startIndex, to: idx)
+        chars[i] = Character(String(chars[i]).uppercased())
+        return String(chars)
+    }
+    
     private static func capitalizeSentenceStarts(_ text: String, forceAll: Bool) -> String {
-        // Split preserving list newlines
         let lines = text.components(separatedBy: "\n")
         return lines.map { line -> String in
             capitalizeLine(line, forceAll: forceAll)
@@ -273,12 +252,10 @@ enum TranscriptFormatter {
             } else if c == "." || c == "!" || c == "?" || c == "\n" {
                 capitalizeNext = true
             } else if c.isWhitespace {
-                // keep capitalizeNext
+                // keep
             } else if !forceAll {
-                // casual: only first of line / after .!?
             }
         }
-        // Always capitalize first letter of line
         if let idx = chars.firstIndex(where: { $0.isLetter }) {
             chars[idx] = Character(String(chars[idx]).uppercased())
         }
@@ -290,7 +267,6 @@ enum TranscriptFormatter {
         return lines.map { line in
             var s = line.trimmingCharacters(in: .whitespaces)
             guard !s.isEmpty else { return s }
-            // List items like "1. Foo" — leave as-is if short and no end punct needed? still period ok
             let last = s.last!
             let terminal: Set<Character> = periodOnly ? ["."] : [".", "!", "?"]
             if !terminal.contains(last), last.isLetter || last == "'" || last == "’" {
@@ -301,7 +277,6 @@ enum TranscriptFormatter {
     }
     
     private static func expandCasualContractions(_ text: String) -> String {
-        // Light formal polish — only common expansions
         let pairs: [(String, String)] = [
             (#"(?i)\bdon't\b"#, "do not"),
             (#"(?i)\bdoesn't\b"#, "does not"),

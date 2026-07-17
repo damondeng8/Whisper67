@@ -7,13 +7,20 @@ struct Whisper67App: App {
     
     var body: some Scene {
         // Menu bar only in the Scene graph — main window is owned by AppKit
-        // so "Open Settings" always works.
-        MenuBarExtra {
+        // so "Open Settings" always works. isInserted respects General → menu bar toggle.
+        MenuBarExtra(isInserted: menuBarInserted) {
             MenuBarView()
         } label: {
             MenuBarLabel()
         }
         .menuBarExtraStyle(.menu)
+    }
+    
+    private var menuBarInserted: Binding<Bool> {
+        Binding(
+            get: { AppState.shared.showMenuBarIcon },
+            set: { AppState.shared.showMenuBarIcon = $0 }
+        )
     }
 }
 
@@ -55,7 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Services (dictation works even if settings closed)
         _ = TranscriptionManager.shared
-        AppState.shared.autoPaste = true
+        // autoPaste is loaded from UserDefaults in AppState — do not force
         TranscriptionManager.shared.requestPermissions()
         ControlDictationInput.shared.setup()
         ControlDictationInput.shared.reinstallAll()
@@ -112,11 +119,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         
         let root = SettingsView()
-            .frame(minWidth: 900, minHeight: 600)
         
         let hosting = NSHostingController(rootView: root)
+        // Compact default — fits Home + sidebar without huge empty chrome
+        let defaultSize = NSSize(width: 900, height: 640)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1000, height: 680),
+            contentRect: NSRect(origin: .zero, size: defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -125,8 +133,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = "Whisper67"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.center()
-        window.setFrameAutosaveName("Whisper67Settings")
+        window.minSize = NSSize(width: 820, height: 560)
+        window.contentMinSize = NSSize(width: 820, height: 560)
+        window.setContentSize(defaultSize)
+        // New autosave key so older oversized frames don't restore
+        window.setFrameAutosaveName("Whisper67Main.v2")
+        // If no saved frame yet (or invalid), start at default centered size
+        if !window.setFrameUsingName("Whisper67Main.v2") {
+            window.setContentSize(defaultSize)
+            window.center()
+        }
+        // Guard against absurd restored sizes (e.g. full-display from prior build)
+        var frame = window.frame
+        if let screen = window.screen ?? NSScreen.main {
+            let maxW = min(screen.visibleFrame.width * 0.88, 1100)
+            let maxH = min(screen.visibleFrame.height * 0.88, 820)
+            if frame.width > maxW || frame.height > maxH {
+                frame.size = NSSize(width: min(frame.width, maxW), height: min(frame.height, maxH))
+                window.setFrame(frame, display: false)
+                window.center()
+            }
+        }
         window.makeKeyAndOrderFront(nil)
         settingsWindow = window
     }
@@ -228,5 +255,4 @@ struct MenuBarView: View {
 
 extension Notification.Name {
     static let whisper67ToggleDictation = Notification.Name("whisper67ToggleDictation")
-    static let whisper67OpenMainWindow = Notification.Name("whisper67OpenMainWindow")
 }

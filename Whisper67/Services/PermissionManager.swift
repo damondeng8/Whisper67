@@ -12,6 +12,8 @@ final class PermissionManager {
     var microphoneGranted = false
     var accessibilityGranted = false
     private(set) var lastChecked = Date()
+    /// Human-readable mic status for UI/debug
+    private(set) var microphoneStatusText = "Unknown"
     
     private let defaults = UserDefaults.standard
     private enum Keys {
@@ -26,74 +28,104 @@ final class PermissionManager {
     /// Silent check — never shows a system dialog.
     func refresh() {
         #if os(macOS)
-        microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        microphoneGranted = AudioRecorderService.microphoneAuthorized()
+        microphoneStatusText = Self.describeMicStatus()
         #endif
         accessibilityGranted = AXIsProcessTrusted()
         lastChecked = Date()
     }
     
-    /// Call once at launch. Only requests mic if never determined; never auto-opens Accessibility prompt repeatedly.
+    private static func describeMicStatus() -> String {
+        #if os(macOS)
+        if #available(macOS 14.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: return "Granted"
+            case .denied: return "Denied"
+            case .undetermined: return "Not determined"
+            @unknown default: break
+            }
+        }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return "Granted"
+        case .denied: return "Denied"
+        case .restricted: return "Restricted"
+        case .notDetermined: return "Not determined"
+        @unknown default: return "Unknown"
+        }
+        #else
+        return "Unknown"
+        #endif
+    }
+    
+    /// Call once at launch. Only requests mic if never determined.
     func bootstrapOnce() {
         refresh()
         
         #if os(macOS)
-        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
-        if micStatus == .notDetermined && !defaults.bool(forKey: Keys.didPromptMicrophone) {
-            defaults.set(true, forKey: Keys.didPromptMicrophone)
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                DispatchQueue.main.async {
-                    self?.microphoneGranted = granted
+        if !microphoneGranted {
+            let undetermined: Bool
+            if #available(macOS 14.0, *) {
+                undetermined = AVAudioApplication.shared.recordPermission == .undetermined
+            } else {
+                undetermined = AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
+            }
+            if undetermined && !defaults.bool(forKey: Keys.didPromptMicrophone) {
+                defaults.set(true, forKey: Keys.didPromptMicrophone)
+                Task { @MainActor in
+                    let granted = await AudioRecorderService.requestMicrophoneAccess()
+                    self.microphoneGranted = granted
+                    self.microphoneStatusText = Self.describeMicStatus()
+                    print("🎤 Bootstrap mic permission: \(granted)")
                 }
             }
         }
         #endif
         
-        // Accessibility: prompt at most once ever, and only if not already trusted
         if !accessibilityGranted && !defaults.bool(forKey: Keys.didPromptAccessibility) {
             defaults.set(true, forKey: Keys.didPromptAccessibility)
-            // Soft prompt once (system sheet). After this we only open Settings on user action.
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             accessibilityGranted = AXIsProcessTrustedWithOptions(options)
         }
     }
     
-    /// User-initiated: open Microphone privacy pane (or request if undetermined).
+    /// User-initiated: request or open Microphone privacy pane.
     func requestMicrophoneFromUser() {
         #if os(macOS)
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        switch status {
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                DispatchQueue.main.async {
-                    self?.microphoneGranted = granted
+        refresh()
+        if microphoneGranted {
+            print("🎤 Mic already granted")
+            return
+        }
+        
+        let undetermined: Bool
+        if #available(macOS 14.0, *) {
+            undetermined = AVAudioApplication.shared.recordPermission == .undetermined
+        } else {
+            undetermined = AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined
+        }
+        
+        if undetermined {
+            Task { @MainActor in
+                let granted = await AudioRecorderService.requestMicrophoneAccess()
+                self.microphoneGranted = granted
+                self.microphoneStatusText = Self.describeMicStatus()
+                print("🎤 User mic request: \(granted)")
+                if !granted {
+                    self.openPrivacyPane("Privacy_Microphone")
                 }
             }
-        case .denied, .restricted:
+        } else {
+            // Denied / restricted — open Settings so user can re-enable
             openPrivacyPane("Privacy_Microphone")
-        case .authorized:
-            microphoneGranted = true
-        @unknown default:
-            break
         }
         #endif
     }
     
-    /// User-initiated: open Accessibility settings (does not spam AX prompt).
     func requestAccessibilityFromUser() {
         refresh()
-        // Opening Settings is more reliable than the one-shot AX prompt for installed apps
         openPrivacyPane("Privacy_Accessibility")
-        // Also try a single prompt so the app appears in the list
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        
-        // On newer macOS, keyboard monitoring may also need Input Monitoring
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-                // Don't force-open both; Accessibility is primary. User can open Input Monitoring if needed.
-                _ = url
-            }
-        }
     }
     
     func openInputMonitoringSettings() {
@@ -110,7 +142,6 @@ final class PermissionManager {
     }
     
     func openPrivacyPane(_ anchor: String) {
-        // Prefer modern System Settings URL when available
         let urls = [
             "x-apple.systempreferences:com.apple.preference.security?\(anchor)",
             "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?\(anchor)"
@@ -123,13 +154,11 @@ final class PermissionManager {
         }
     }
     
-    /// Path shown to user so they can match the Accessibility list entry.
     var appPathForDisplay: String {
         Bundle.main.bundlePath
     }
     
     var isAdHocSigned: Bool {
-        // Ad-hoc signed apps lose TCC grants when the binary CDHash changes
         guard let url = Bundle.main.executableURL else { return true }
         var staticCode: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &staticCode) == errSecSuccess,
@@ -137,7 +166,6 @@ final class PermissionManager {
         var info: CFDictionary?
         guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
               let info = info as? [String: Any] else { return true }
-        // Team identifier missing ⇒ typically ad-hoc / local sign
         return info[kSecCodeInfoTeamIdentifier as String] == nil
     }
 }

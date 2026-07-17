@@ -9,7 +9,7 @@ struct HomeDashboardView: View {
     
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 20) {
                 header
                 
                 // Hero dictate card
@@ -150,19 +150,10 @@ struct HomeDashboardView: View {
                                         }
                                         .padding(.vertical, 10)
                                         .background {
-                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .fill(appState.hotkey == preset
-                                                      ? Color.black.opacity(0.08)
-                                                      : Color.black.opacity(0.03))
-                                                .overlay {
-                                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                        .strokeBorder(
-                                                            appState.hotkey == preset
-                                                                ? Color.black.opacity(0.16)
-                                                                : Color.clear,
-                                                            lineWidth: 1
-                                                        )
-                                                }
+                                            SelectChipBackground(
+                                                isSelected: appState.hotkey == preset,
+                                                cornerRadius: 10
+                                            )
                                         }
                                     }
                                     .buttonStyle(.plain)
@@ -203,6 +194,7 @@ struct HomeDashboardView: View {
                         
                         HStack(spacing: 8) {
                             ForEach(DictationStyle.allCases) { style in
+                                let selected = appState.dictationStyle == style
                                 Button {
                                     appState.dictationStyle = style
                                 } label: {
@@ -214,23 +206,11 @@ struct HomeDashboardView: View {
                                             .lineLimit(1)
                                             .minimumScaleFactor(0.8)
                                     }
-                                    .foregroundStyle(appState.dictationStyle == style ? DengBrand.ink : DengBrand.graphite.opacity(0.7))
+                                    .foregroundStyle(DengBrand.ink)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 12)
                                     .background {
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .fill(appState.dictationStyle == style
-                                                  ? Color.black.opacity(0.08)
-                                                  : Color.black.opacity(0.03))
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                    .strokeBorder(
-                                                        appState.dictationStyle == style
-                                                            ? Color.black.opacity(0.14)
-                                                            : Color.clear,
-                                                        lineWidth: 1
-                                                    )
-                                            }
+                                        SelectChipBackground(isSelected: selected, cornerRadius: 12)
                                     }
                                 }
                                 .buttonStyle(.plain)
@@ -346,8 +326,9 @@ struct HomeDashboardView: View {
                         
                         permissionRow(
                             title: "Microphone",
-                            detail: "Capture speech",
+                            detail: PermissionManager.shared.microphoneStatusText,
                             ok: PermissionManager.shared.microphoneGranted
+                                || AudioRecorderService.microphoneAuthorized()
                         )
                         permissionRow(
                             title: "Accessibility",
@@ -405,10 +386,13 @@ struct HomeDashboardView: View {
                             .foregroundStyle(DengBrand.silver)
                             .textSelection(.enabled)
                     }
-                    .padding(22)
+                    .padding(20)
                 }
             }
-            .padding(32)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 22)
+            .frame(maxWidth: 780, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
     
@@ -416,7 +400,7 @@ struct HomeDashboardView: View {
         HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Home")
-                    .font(.system(size: 28, weight: .semibold, design: .rounded))
+                    .font(.system(size: 26, weight: .semibold, design: .rounded))
                 Text("System-wide AI dictation for your Mac")
                     .font(.system(size: 13, design: .rounded))
                     .foregroundStyle(.secondary)

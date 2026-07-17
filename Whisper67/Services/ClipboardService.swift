@@ -5,6 +5,9 @@ import Observation
 import Carbon.HIToolbox
 
 /// Pastes transcription at the caret in the app the user was typing in.
+///
+/// **Exactly one** Cmd+V per dictation — dual posts (HID + postToPid) caused
+/// double inserts ("Yo what's up…" twice).
 @Observable
 final class ClipboardService {
     static let shared = ClipboardService()
@@ -16,6 +19,13 @@ final class ClipboardService {
     private var lastForeignPID: pid_t = 0
     private var lastForeignName: String = ""
     private var pasteGeneration = 0
+    
+    /// Blocks overlapping paste pipelines (completion handler races, double confirm).
+    private var pasteInFlight = false
+    private var lastPasteFingerprint: String = ""
+    private var lastPasteAt: Date = .distantPast
+    
+    private var previousClipboard: String?
     
     private init() {
         NSWorkspace.shared.notificationCenter.addObserver(
@@ -77,13 +87,15 @@ final class ClipboardService {
     // MARK: - Clipboard
     
     @discardableResult
-    func copyToClipboard(_ text: String) -> Bool {
+    func copyToClipboard(_ text: String, rememberPrevious: Bool = true) -> Bool {
         let pb = NSPasteboard.general
-        pb.prepareForNewContents(with: [])
+        if rememberPrevious {
+            previousClipboard = pb.string(forType: .string)
+        }
         pb.clearContents()
-        let declared = pb.declareTypes([.string], owner: nil)
         let ok = pb.setString(text, forType: .string)
-        print("📋 Clipboard types=\(declared) set=\(ok) len=\(text.count)")
+        pb.setString(text, forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
+        print("📋 Clipboard set=\(ok) len=\(text.count)")
         return ok
     }
     
@@ -91,142 +103,222 @@ final class ClipboardService {
     
     func copyAndPaste(_ text: String) {
         guard !text.isEmpty else { return }
-        pasteGeneration += 1
-        let gen = pasteGeneration
         
-        guard copyToClipboard(text) else {
-            print("❌ clipboard write failed")
+        // Debounce: same text within 1.2s, or any paste still running
+        let now = Date()
+        if pasteInFlight {
+            print("⏭ Paste skipped — already in flight")
+            return
+        }
+        if text == lastPasteFingerprint, now.timeIntervalSince(lastPasteAt) < 1.2 {
+            print("⏭ Paste skipped — duplicate within 1.2s")
             return
         }
         
-        // Hide our UI so we don't receive Cmd+V
-        for w in NSApp.windows {
-            if w is TranscriptionOverlayWindow {
-                w.orderOut(nil)
-                continue
-            }
-            if w.isVisible && (w.canBecomeMain || w.canBecomeKey) {
-                w.orderOut(nil)
-            }
+        pasteGeneration += 1
+        let gen = pasteGeneration
+        pasteInFlight = true
+        lastPasteFingerprint = text
+        lastPasteAt = now
+        
+        guard copyToClipboard(text, rememberPrevious: true) else {
+            print("❌ clipboard write failed")
+            pasteInFlight = false
+            return
         }
+        
+        for w in NSApp.windows where w is TranscriptionOverlayWindow {
+            w.orderOut(nil)
+        }
+        
+        resolveTargetIfNeeded()
         
         let pid = targetPID != 0 ? targetPID : lastForeignPID
         let name = targetName.isEmpty ? lastForeignName : targetName
         let bid = targetBundleID ?? lastForeignBundleID
         
-        print("🎯 Auto-paste gen=\(gen) → \(name) pid=\(pid)")
+        print("🎯 Auto-paste gen=\(gen) → \(name) pid=\(pid) AX=\(AXIsProcessTrusted())")
         
-        // Fast path: activate + paste on next runloop tick (no stacked delays)
         DispatchQueue.main.async { [weak self] in
-            self?.runPasteFast(text: text, pid: pid, bundleID: bid, name: name, generation: gen)
+            self?.runPastePipeline(text: text, pid: pid, bundleID: bid, generation: gen)
         }
     }
     
-    /// Single-pass paste: AX first (no focus dance needed when trusted), else activate + Cmd+V.
-    /// One short fallback only if both miss — avoids multi-second retry chains.
-    private func runPasteFast(text: String, pid: pid_t, bundleID: String?, name: String, generation: Int) {
-        guard generation == pasteGeneration else { return }
-        _ = copyToClipboard(text)
-        
-        // Prefer AX insert immediately — works without activating when focus is already correct
-        if insertViaAX(text) {
-            print("✅ Paste via AX (fast)")
+    private func runPastePipeline(text: String, pid: pid_t, bundleID: String?, generation: Int) {
+        guard generation == pasteGeneration else {
+            finishPaste(generation: generation)
             return
         }
         
+        // Re-assert clipboard without clobbering previousClipboard snapshot
+        _ = copyToClipboard(text, rememberPrevious: false)
+        
         activate(pid: pid, bundleID: bundleID)
         
-        // Brief yield for app activation (~40ms), then Cmd+V once
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
-            guard let self, generation == self.pasteGeneration else { return }
-            self.activate(pid: pid, bundleID: bundleID)
-            
-            if self.insertViaAX(text) {
-                print("✅ Paste via AX after activate")
+        waitUntilFrontmost(pid: pid, bundleID: bundleID, generation: generation, attemptsLeft: 12) { [weak self] activated in
+            guard let self, generation == self.pasteGeneration else {
+                self?.finishPaste(generation: generation)
                 return
             }
             
-            self.postCommandV()
-            print("✅ Paste via CGEvent Cmd+V")
+            if !activated {
+                print("⚠️ Target never became frontmost — pasting to current frontmost")
+            }
             
-            // System Events only when Accessibility is off (Cmd+V alone is often blocked)
-            if !AXIsProcessTrusted() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    guard let self, generation == self.pasteGeneration else { return }
-                    if pid > 0 {
-                        _ = self.osascriptPaste(pid: pid)
-                    } else {
-                        _ = self.osascriptPasteFront()
+            // One settle frame for key window, then a single Cmd+V
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { [weak self] in
+                guard let self, generation == self.pasteGeneration else {
+                    self?.finishPaste(generation: generation)
+                    return
+                }
+                
+                // If we still own focus, one more activate then paste once
+                if self.looksLikeFrontIsOurs() {
+                    self.activate(pid: pid, bundleID: bundleID)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                        guard let self, generation == self.pasteGeneration else {
+                            self?.finishPaste(generation: generation)
+                            return
+                        }
+                        self.fireSinglePaste(text: text, pid: pid, generation: generation)
                     }
+                } else {
+                    self.fireSinglePaste(text: text, pid: pid, generation: generation)
                 }
             }
         }
     }
     
+    /// Exactly one synthetic ⌘V. No HID+pid dual post, no automatic second paste.
+    private func fireSinglePaste(text: String, pid: pid_t, generation: Int) {
+        guard generation == pasteGeneration else {
+            finishPaste(generation: generation)
+            return
+        }
+        
+        _ = copyToClipboard(text, rememberPrevious: false)
+        
+        if !AXIsProcessTrusted() {
+            // Without Accessibility, CGEvent is often ignored — use System Events once
+            if pid > 0 {
+                _ = osascriptPaste(pid: pid)
+            } else {
+                _ = osascriptPasteFront()
+            }
+            print("✅ Paste via System Events (single)")
+        } else {
+            postCommandVOnce()
+            print("✅ Paste via CGEvent Cmd+V (single)")
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
+            self?.restorePreviousClipboardIfSafe(pasted: text)
+            self?.finishPaste(generation: generation)
+        }
+    }
+    
+    private func finishPaste(generation: Int) {
+        // Only clear in-flight if this is still the active generation
+        if generation == pasteGeneration {
+            pasteInFlight = false
+        }
+    }
+    
+    // MARK: - Target resolution
+    
+    private func resolveTargetIfNeeded() {
+        let our = Bundle.main.bundleIdentifier
+        if targetPID == 0 {
+            if let front = NSWorkspace.shared.frontmostApplication,
+               let bid = front.bundleIdentifier,
+               bid != our, !front.isTerminated {
+                targetBundleID = bid
+                targetPID = front.processIdentifier
+                targetName = front.localizedName ?? bid
+            } else if lastForeignPID != 0 {
+                targetPID = lastForeignPID
+                targetBundleID = lastForeignBundleID
+                targetName = lastForeignName
+            }
+        }
+    }
+    
+    private func looksLikeFrontIsOurs() -> Bool {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
+    }
+    
+    // MARK: - Activate + wait
+    
     private func activate(pid: pid_t, bundleID: String?) {
         if pid > 0, let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated {
-            if #available(macOS 14.0, *) {
-                app.activate()
-            } else {
-                app.activate(options: [.activateIgnoringOtherApps])
-            }
+            activateApp(app)
             print("🎯 activate pid \(pid) \(app.localizedName ?? "")")
             return
         }
         if let bundleID,
-           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first {
-            if #available(macOS 14.0, *) {
-                app.activate()
-            } else {
-                app.activate(options: [.activateIgnoringOtherApps])
-            }
+           let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first(where: { !$0.isTerminated }) {
+            activateApp(app)
             print("🎯 activate bundle \(bundleID)")
             return
         }
         print("⚠️ activate: no target")
     }
     
-    // MARK: - AX insert
+    private func activateApp(_ app: NSRunningApplication) {
+        app.activate(options: [.activateIgnoringOtherApps])
+        if app.isHidden {
+            app.unhide()
+        }
+    }
     
-    private func insertViaAX(_ text: String) -> Bool {
-        guard AXIsProcessTrusted() else { return false }
+    private func waitUntilFrontmost(
+        pid: pid_t,
+        bundleID: String?,
+        generation: Int,
+        attemptsLeft: Int,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard generation == pasteGeneration else { return }
         
-        let system = AXUIElementCreateSystemWide()
-        var focused: CFTypeRef?
-        let err = AXUIElementCopyAttributeValue(system, kAXFocusedUIElementAttribute as CFString, &focused)
-        guard err == .success, let focused else { return false }
-        
-        let el = focused as! AXUIElement
-        
-        if AXUIElementSetAttributeValue(el, kAXSelectedTextAttribute as CFString, text as CFTypeRef) == .success {
-            return true
+        if isFrontmost(pid: pid, bundleID: bundleID) {
+            completion(true)
+            return
         }
         
-        var val: CFTypeRef?
-        if AXUIElementCopyAttributeValue(el, kAXValueAttribute as CFString, &val) == .success,
-           let existing = val as? String {
-            var range = CFRange(location: existing.utf16.count, length: 0)
-            var rangeRef: CFTypeRef?
-            if AXUIElementCopyAttributeValue(el, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
-               let rangeRef {
-                let ax = unsafeBitCast(rangeRef, to: AXValue.self)
-                _ = AXValueGetValue(ax, .cfRange, &range)
-            }
-            let ns = existing as NSString
-            let loc = min(max(0, range.location), ns.length)
-            let len = min(max(0, range.length), ns.length - loc)
-            let updated = ns.replacingCharacters(in: NSRange(location: loc, length: len), with: text)
-            if AXUIElementSetAttributeValue(el, kAXValueAttribute as CFString, updated as CFTypeRef) == .success {
-                return true
-            }
+        if attemptsLeft <= 0 {
+            activate(pid: pid, bundleID: bundleID)
+            completion(false)
+            return
         }
+        
+        if attemptsLeft % 4 == 0 {
+            activate(pid: pid, bundleID: bundleID)
+        }
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) { [weak self] in
+            self?.waitUntilFrontmost(
+                pid: pid,
+                bundleID: bundleID,
+                generation: generation,
+                attemptsLeft: attemptsLeft - 1,
+                completion: completion
+            )
+        }
+    }
+    
+    private func isFrontmost(pid: pid_t, bundleID: String?) -> Bool {
+        guard let front = NSWorkspace.shared.frontmostApplication else { return false }
+        if pid > 0, front.processIdentifier == pid { return true }
+        if let bundleID, front.bundleIdentifier == bundleID { return true }
         return false
     }
     
-    // MARK: - Cmd+V via CGEvent
+    // MARK: - Cmd+V — once only
     
-    private func postCommandV() {
-        let source = CGEventSource(stateID: .hidSystemState)
+    /// Post a single ⌘V through the HID tap. Do **not** also postToPid —
+    /// many apps receive both and insert the clipboard twice.
+    private func postCommandVOnce() {
+        let source = CGEventSource(stateID: .combinedSessionState)
         source?.localEventsSuppressionInterval = 0
         
         let keyV = CGKeyCode(kVK_ANSI_V)
@@ -237,12 +329,31 @@ final class ClipboardService {
             return
         }
         
-        down.flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue)
-        up.flags = CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue)
+        down.flags = .maskCommand
+        up.flags = .maskCommand
         
         down.post(tap: .cghidEventTap)
-        usleep(8_000)
+        // Tiny gap so the host sees a clean key down/up pair (not two pastes)
+        usleep(5_000)
         up.post(tap: .cghidEventTap)
+    }
+    
+    // MARK: - Clipboard restore
+    
+    private func restorePreviousClipboardIfSafe(pasted: String) {
+        guard let previous = previousClipboard else { return }
+        // Don't restore if previous was already our paste text
+        guard previous != pasted else {
+            previousClipboard = nil
+            return
+        }
+        let pb = NSPasteboard.general
+        if pb.string(forType: .string) == pasted {
+            pb.clearContents()
+            pb.setString(previous, forType: .string)
+            print("📋 Restored previous clipboard")
+        }
+        previousClipboard = nil
     }
     
     // MARK: - osascript fallback
@@ -251,7 +362,7 @@ final class ClipboardService {
         let source = """
         tell application "System Events"
           set frontmost of first process whose unix id is \(pid) to true
-          delay 0.04
+          delay 0.06
           keystroke "v" using command down
         end tell
         """
@@ -261,7 +372,7 @@ final class ClipboardService {
     private func osascriptPasteFront() -> Bool {
         let source = """
         tell application "System Events"
-          delay 0.02
+          delay 0.03
           keystroke "v" using command down
         end tell
         """

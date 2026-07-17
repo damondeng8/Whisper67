@@ -194,7 +194,7 @@ struct APISettingsTab: View {
             HStack(spacing: 14) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(appState.provider == provider ? Color.black.opacity(0.08) : Color.black.opacity(0.04))
+                        .fill(appState.provider == provider ? DengBrand.chipSelected : DengBrand.chip)
                         .frame(width: 44, height: 44)
                     Image(systemName: provider.icon)
                         .font(.system(size: 16, weight: .semibold))

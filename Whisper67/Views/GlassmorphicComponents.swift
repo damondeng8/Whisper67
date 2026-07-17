@@ -17,6 +17,22 @@ enum DengBrand {
     /// Mid gray for inactive chrome
     static let silver = Color(red: 0.55, green: 0.56, blue: 0.58)
     
+    // MARK: Uniform surfaces (no fade hierarchy)
+    
+    /// Card / panel fill — solid, same everywhere
+    static let surface = Color.white
+    /// Nested chip / control fill — light gray (not heavy)
+    static let chip = Color(red: 0.965, green: 0.965, blue: 0.968)
+    /// Selected chip — slightly deeper than chip, still light
+    static let chipSelected = Color(red: 0.93, green: 0.93, blue: 0.935)
+    /// Icon well / subtle inset
+    static let chipInset = Color(red: 0.95, green: 0.95, blue: 0.955)
+    /// Uniform stroke for chips & cards
+    static let stroke = Color.black.opacity(0.07)
+    static let strokeSelected = Color.black.opacity(0.12)
+    /// Uniform soft shadow
+    static let shadow = Color.black.opacity(0.05)
+    
     /// Primary interactive accent — soft black
     static let accent = ink
     /// Alias used across UI for active chrome
@@ -25,72 +41,16 @@ enum DengBrand {
     static let teal = silver
     
     static var meshBackground: some View {
-        ZStack {
-            // Pure cloud base
-            LinearGradient(
-                colors: [
-                    Color.white,
-                    cloud,
-                    mist
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            
-            // Soft charcoal depth orbs (no color cast)
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.black.opacity(0.04), .clear],
-                        center: .center,
-                        startRadius: 20,
-                        endRadius: 240
-                    )
-                )
-                .frame(width: 440, height: 440)
-                .blur(radius: 50)
-                .offset(x: -220, y: -180)
-            
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.black.opacity(0.035), .clear],
-                        center: .center,
-                        startRadius: 10,
-                        endRadius: 200
-                    )
-                )
-                .frame(width: 360, height: 360)
-                .blur(radius: 55)
-                .offset(x: 240, y: 140)
-            
-            Circle()
-                .fill(
-                    RadialGradient(
-                        colors: [Color.white.opacity(0.7), .clear],
-                        center: .center,
-                        startRadius: 5,
-                        endRadius: 140
-                    )
-                )
-                .frame(width: 280, height: 280)
-                .blur(radius: 30)
-                .offset(x: 20, y: 220)
-            
-            Rectangle()
-                .fill(.ultraThinMaterial)
-                .opacity(0.22)
-        }
+        // Flat uniform base — no gradient fade orbs
+        Rectangle()
+            .fill(cloud)
+            .ignoresSafeArea()
     }
     
     static var glassStroke: LinearGradient {
+        // Flat stroke (same color both ends) so cards don’t look graded
         LinearGradient(
-            colors: [
-                Color.white.opacity(0.95),
-                Color.white.opacity(0.4),
-                Color.black.opacity(0.06),
-                Color.white.opacity(0.15)
-            ],
+            colors: [stroke, stroke],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -98,10 +58,7 @@ enum DengBrand {
     
     static var primaryFill: LinearGradient {
         LinearGradient(
-            colors: [
-                Color(red: 0.14, green: 0.14, blue: 0.15),
-                ink
-            ],
+            colors: [ink, ink],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -120,29 +77,32 @@ struct GlassCard<Content: View>: View {
             .padding(padding)
             .background {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .background {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.78),
-                                        Color.white.opacity(0.35),
-                                        Color.white.opacity(0.12)
-                                    ],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .blendMode(.plusLighter)
-                            .opacity(0.5)
-                    }
+                    .fill(DengBrand.surface)
                     .overlay {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .strokeBorder(DengBrand.glassStroke, lineWidth: 1)
+                            .strokeBorder(DengBrand.stroke, lineWidth: 1)
                     }
-                    .shadow(color: .black.opacity(0.06), radius: 22, y: 10)
-                    .shadow(color: .black.opacity(0.03), radius: 2, y: 1)
+                    .shadow(color: DengBrand.shadow, radius: 12, y: 4)
+            }
+    }
+}
+
+// MARK: - Uniform selectable chip (mode / segment)
+
+/// Solid equal-weight chips — selected is darker fill, never “faded” siblings.
+struct SelectChipBackground: View {
+    var isSelected: Bool
+    var cornerRadius: CGFloat = 12
+    
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(isSelected ? DengBrand.chipSelected : DengBrand.chip)
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? DengBrand.strokeSelected : DengBrand.stroke,
+                        lineWidth: 1
+                    )
             }
     }
 }
@@ -162,11 +122,11 @@ struct StatTile: View {
                 HStack {
                     ZStack {
                         Circle()
-                            .fill(Color.black.opacity(0.05))
+                            .fill(DengBrand.chipInset)
                             .frame(width: 36, height: 36)
                         Image(systemName: icon)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(DengBrand.ink.opacity(0.85))
+                            .foregroundStyle(DengBrand.ink)
                     }
                     Spacer()
                 }
@@ -181,11 +141,11 @@ struct StatTile: View {
                     
                     Text(title)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(DengBrand.graphite.opacity(0.75))
+                        .foregroundStyle(DengBrand.graphite)
                     
                     Text(subtitle)
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(DengBrand.silver)
+                        .foregroundStyle(DengBrand.graphite)
                 }
             }
             .padding(20)
@@ -207,7 +167,7 @@ struct SectionHeader: View {
                 .foregroundStyle(DengBrand.ink)
             Text(subtitle)
                 .font(.system(size: 13, weight: .regular, design: .rounded))
-                .foregroundStyle(DengBrand.graphite.opacity(0.65))
+                .foregroundStyle(DengBrand.graphite)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -255,11 +215,11 @@ struct SidebarItem: View {
                 Image(systemName: icon)
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 20)
-                    .foregroundStyle(isSelected ? DengBrand.ink : DengBrand.silver)
+                    .foregroundStyle(DengBrand.ink)
                 
                 Text(title)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .medium, design: .rounded))
-                    .foregroundStyle(isSelected ? DengBrand.ink : DengBrand.graphite.opacity(0.7))
+                    .foregroundStyle(DengBrand.ink)
                 
                 Spacer()
                 
@@ -275,18 +235,13 @@ struct SidebarItem: View {
         }
         .buttonStyle(.plain)
         .background {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    isSelected
-                        ? Color.black.opacity(0.06)
-                        : (isHovered ? Color.black.opacity(0.03) : Color.clear)
-                )
-                .overlay {
-                    if isSelected {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
-                    }
+            Group {
+                if isSelected {
+                    SelectChipBackground(isSelected: true, cornerRadius: 12)
+                } else if isHovered {
+                    SelectChipBackground(isSelected: false, cornerRadius: 12)
                 }
+            }
         }
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.15), value: isSelected)
@@ -415,20 +370,17 @@ struct ProviderChip: View {
             }
             .padding(.horizontal, 13)
             .padding(.vertical, 9)
-            .foregroundStyle(isSelected ? Color.white : DengBrand.ink.opacity(0.85))
+            .foregroundStyle(DengBrand.ink)
             .background {
                 Capsule()
-                    .fill(
-                        isSelected
-                            ? AnyShapeStyle(DengBrand.primaryFill)
-                            : AnyShapeStyle(Color.black.opacity(0.04))
-                    )
+                    .fill(isSelected ? DengBrand.chipSelected : DengBrand.chip)
                     .overlay {
-                        if !isSelected {
-                            Capsule().strokeBorder(Color.black.opacity(0.08), lineWidth: 1)
-                        }
+                        Capsule()
+                            .strokeBorder(
+                                isSelected ? DengBrand.strokeSelected : DengBrand.stroke,
+                                lineWidth: 1
+                            )
                     }
-                    .shadow(color: isSelected ? Color.black.opacity(0.18) : .clear, radius: 8, y: 3)
             }
         }
         .buttonStyle(.plain)
