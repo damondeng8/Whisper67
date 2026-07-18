@@ -168,11 +168,18 @@ class WhisperService {
                 return
             }
             
+            // Log raw STT before any post-processing (style / self-correct / OSS)
+            AppLog.info("🎙 Raw Whisper (\(text.count) chars): \(text.prefix(240))\(text.count > 240 ? "…" : "")")
+            
             let styled = await finalizeTranscript(text, appState: appState)
             
             guard myJob == jobID else {
                 print("⏭ Discarded stale transcription job \(myJob) after polish")
                 return
+            }
+            
+            if styled != text {
+                AppLog.info("✏️ After post (\(styled.count) chars): \(styled.prefix(240))\(styled.count > 240 ? "…" : "")")
             }
             
             await MainActor.run {

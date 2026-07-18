@@ -2,7 +2,14 @@ import Foundation
 
 /// Mid-utterance spoken corrections + clock-time normalization.
 ///
-/// "Thursday, no actually Friday at 3 30pm" → "Friday at 3:30pm"
+/// Only fires on clear correction cues — never bare "X no Y" (that deleted real speech
+/// like "have no idea" → "idea").
+///
+/// Examples that still work:
+/// - "Thursday, no actually Friday" → "Friday"
+/// - "2 no wait 3pm" → "3pm"
+/// - "John wait no Jane" → "Jane"
+/// - "scratch that, send it Monday"
 enum SelfCorrection {
     
     static func apply(_ raw: String) -> String {
@@ -27,7 +34,8 @@ enum SelfCorrection {
     private static func applyOnce(_ text: String) -> String {
         var t = text
         
-        // Days: "Thursday no actually Friday"
+        // Days: "Thursday no actually Friday" / "Thursday no Friday"
+        // Closed set — safe even without "actually"
         let days = "monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tomorrow|tonight"
         t = replace(
             t,
@@ -35,39 +43,42 @@ enum SelfCorrection {
             "$2"
         )
         
-        // Times / numbers: "2 no wait 3pm", "2:00 no 3:30"
+        // Times / numbers: "2 no wait 3pm", "2:00 no actually 3:30"
+        // Requires wait / actually / i mean / or second token has am/pm so "no way" is untouched
         t = replace(
             t,
             #"(?i)\b(\d{1,2}(?::\d{2})?(?:am|pm|a\.m\.|p\.m\.)?)\s*(?:[,;])?\s+(?:uh\s+|um\s+)?(?:wait\s+)?(?:no|nope|nah)(?:\s*,)?\s*(?:wait\s+)?(?:actually\s+|i\s+mean\s+)?(\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|a\.m\.|p\.m\.))?)\b"#,
             "$2"
         )
         
-        // Single token: "John no actually Jane" / "Thursday no Friday"
-        // Allows: uh/um before no; wait before or after no; actually / I mean
+        // Single token with REQUIRED correction cue (wait / actually / i mean / nope/nah)
+        // "John no actually Jane" · "John wait no Jane" · "John no wait Jane"
+        // NOT "have no idea" / "said no thanks" / "there's no way"
         t = replace(
             t,
-            #"(?i)\b([\w']+)\s*(?:[,;])?\s+(?:uh\s+|um\s+|er\s+)?(?:wait\s+)?(?:no|nope|nah)(?:\s*,)?\s*(?:wait\s+)?(?:actually\s+|i\s+mean\s+)?([\w']+)\b"#,
+            #"(?i)\b([\w']+)\s*(?:[,;])?\s+(?:uh\s+|um\s+|er\s+)?(?:(?:wait\s+)?(?:nope|nah)|(?:wait\s+)?no(?:\s*,)?\s*(?:wait|actually|i\s+mean)|no\s+wait|no\s+actually|no\s+i\s+mean)(?:\s*,)?\s*(?:wait\s+)?(?:actually\s+|i\s+mean\s+)?([\w']+)\b"#,
             "$2"
         )
         
         // Multi-word when "actually" / "I mean" present
         t = replace(
             t,
-            #"(?i)\b([\w']+(?:\s+[\w']+){0,2})\s*(?:[,;])?\s+(?:uh\s+|um\s+)?(?:wait\s+)?(?:no|nope)(?:\s*,)?\s+(?:actually\s+|i\s+mean\s+)([\w']+(?:\s+[\w']+){0,2})\b"#,
+            #"(?i)\b([\w']+(?:\s+[\w']+){0,2})\s*(?:[,;])?\s+(?:uh\s+|um\s+)?(?:wait\s+)?(?:no|nope)(?:\s*,)?\s+(?:actually|i\s+mean)\s+([\w']+(?:\s+[\w']+){0,2})\b"#,
             "$2"
         )
         
-        // "I mean Friday" after a word
+        // "X, I mean Y" (comma or "wait" required so normal "I mean" discourse stays)
         t = replace(
             t,
-            #"(?i)\b([\w']+)\s*(?:[,;])?\s+i\s+mean\s+([\w']+)\b"#,
+            #"(?i)\b([\w']+)\s*(?:[,;]|wait)\s+i\s+mean\s+([\w']+)\b"#,
             "$2"
         )
         
-        // Strip leftover correction debris
-        t = replace(t, #"(?i)\bwait\s*,?\s*no(?:\s*,)?\s*(?:actually\s+)?"#, "")
-        t = replace(t, #"(?i)(?:\s*[,;])?\s*\bno(?:\s*,)?\s+actually\b\s*"#, " ")
+        // Explicit discard phrases only
         t = replace(t, #"(?i)\b(?:scratch that|forget that|ignore that|correction)\b[,:]?\s*"#, "")
+        // Leftover debris after a successful correction (not bare "no")
+        t = replace(t, #"(?i)\bwait\s*,?\s*no(?:\s*,)?\s*(?:actually\s+)?"#, "")
+        t = replace(t, #"(?i)\bno(?:\s*,)?\s+actually\b\s*"#, " ")
         t = replace(t, #"(?i)\s+\bno\s+wait\b\s+"#, " ")
         
         return t

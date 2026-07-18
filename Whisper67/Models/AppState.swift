@@ -100,16 +100,12 @@ enum DictationStyle: String, CaseIterable, Identifiable, Codable {
         }
     }
     
-    /// Whisper prompt bias for cloud (and soft local hint).
+    /// Soft vocabulary-style priming only (Whisper `prompt` is NOT an instruction field).
+    /// Real style is applied after STT by `TranscriptFormatter` — never tell Whisper to drop punctuation.
     var whisperHint: String {
-        switch self {
-        case .casual:
-            return "Transcribe in casual lowercase chat style. Keep contractions and informal wording. Prefer little or no formal punctuation."
-        case .normal:
-            return "Transcribe as continuous text using commas for pauses. Do not use periods, question marks, or exclamation points."
-        case .formal:
-            return "Transcribe in formal written English with proper capitalization, full sentences, and complete punctuation."
-        }
+        // Empty: style instructions as prompt bias caused incomplete / reshaped transcripts.
+        // Dictionary terms alone are safer for the Whisper API prompt.
+        ""
     }
     
     /// Migrate old stored raw values.
@@ -522,15 +518,12 @@ final class AppState {
         IntentVocabulary.whisperBiasPrompt(userDictionary: customWords.map(\.word))
     }
     
-    /// Full prompt sent to Whisper: style + optional list bias + dictionary intention.
+    /// Prompt sent to Whisper APIs.
+    /// Whisper treats this as *previous transcript / vocabulary context*, not system instructions.
+    /// We only send the user dictionary so the model is not biased to drop content or reshape prose.
+    /// Style, lists, and polish run *after* STT in `finalizeTranscript`.
     var transcriptionPrompt: String {
-        var parts: [String] = [dictationStyle.whisperHint]
-        if listModeEnabled {
-            parts.append("If the speaker lists items, number them as 1. 2. 3. on separate lines.")
-        }
-        let dict = dictionaryPrompt
-        if !dict.isEmpty { parts.append(dict) }
-        return parts.joined(separator: " ")
+        dictionaryPrompt
     }
     
     /// Apply self-corrections + dictionary repair + style (no LLM).
