@@ -65,7 +65,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // autoPaste is loaded from UserDefaults in AppState — do not force
         TranscriptionManager.shared.requestPermissions()
         ControlDictationInput.shared.setup()
-        ControlDictationInput.shared.reinstallAll()
         GlobalHotkeyService.shared.currentHotkey = AppState.shared.hotkey
         GlobalHotkeyService.shared.setup()
         
@@ -89,6 +88,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     func applicationDidBecomeActive(_ notification: Notification) {
+        // Silent re-check only — never re-prompt TCC on focus
+        PermissionManager.shared.refresh()
         ControlDictationInput.shared.ensureActiveForSession()
         GlobalHotkeyService.shared.refreshAccessibilityStatus()
     }
@@ -261,7 +262,10 @@ struct MenuBarView: View {
         
         Button("Fix Permissions…") {
             PermissionManager.shared.requestAccessibilityFromUser()
-            ControlDictationInput.shared.reinstallAll()
+            // reinstall after user returns from Settings — force one create attempt
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                ControlDictationInput.shared.reinstallAll(forceTap: true)
+            }
             AppDelegate.shared?.showSettingsWindow()
         }
         

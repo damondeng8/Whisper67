@@ -356,7 +356,7 @@ struct HomeDashboardView: View {
                             
                             Button("Enable Accessibility") {
                                 manager.hotkey.requestAccessibilityPrompt()
-                                ControlDictationInput.shared.reinstallAll()
+                                // Prompt path already reinstalls after short delay with force
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -370,7 +370,7 @@ struct HomeDashboardView: View {
                             Button("Refresh status") {
                                 PermissionManager.shared.refresh()
                                 manager.hotkey.refreshAccessibilityStatus()
-                                ControlDictationInput.shared.reinstallAll()
+                                ControlDictationInput.shared.reinstallAll(forceTap: true)
                                 manager.updateStatusMessage()
                             }
                             .buttonStyle(.bordered)

@@ -63,6 +63,12 @@ final class ControlDictationInput {
     private var lastControlActionAt: Date = .distantPast
     private var lastConfirmAt: Date = .distantPast
     
+    /// Prevents CGEvent.tapCreate spam (macOS re-prompts Accessibility / Input Monitoring).
+    private var lastTapCreateFailed = false
+    private var lastTapCreateAttempt: Date = .distantPast
+    private var lastKnownAXTrusted = false
+    private let tapCreateCooldown: TimeInterval = 30
+    
     // Tight windows for snappy hold-to-talk; double-tap still reliable.
     private let doubleTapWindow: TimeInterval = 0.38
     private let shortTapMax: TimeInterval = 0.28
@@ -79,7 +85,7 @@ final class ControlDictationInput {
     
     func setup() {
         refreshAccessibility()
-        reinstallAll()
+        reinstallAll(forceTap: true)
         
         guard !didInstallObservers else { return }
         didInstallObservers = true
@@ -115,10 +121,16 @@ final class ControlDictationInput {
                 print("⚠️ Event tap disabled — re-enabling")
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
-        } else if accessibilityTrusted {
-            print("⚠️ Event tap missing — reinstalling")
-            reinstallAll()
+        } else {
+            // Only recreate after AX flips false→true, or cooldown elapsed while trusted
+            let axJustGranted = accessibilityTrusted && !lastKnownAXTrusted
+            let cooldownOK = Date().timeIntervalSince(lastTapCreateAttempt) >= tapCreateCooldown
+            if accessibilityTrusted && (axJustGranted || (cooldownOK && lastTapCreateFailed)) {
+                print("⚠️ Event tap missing — careful reinstall (AX ready)")
+                reinstallAll(forceTap: axJustGranted)
+            }
         }
+        lastKnownAXTrusted = accessibilityTrusted
         // Always ensure global monitor if AX is on
         if accessibilityTrusted && !globalMonitorActive {
             installNSEventMonitors()
@@ -127,16 +139,26 @@ final class ControlDictationInput {
     }
     
     /// Call often: session start, app resign active, etc.
+    /// Re-enables existing taps; does not spam CGEvent.tapCreate (that re-prompts TCC).
     func ensureActiveForSession() {
         refreshAccessibility()
-        if !eventTapActive {
-            installEventTap()
-        } else if let tap = eventTap {
+        if eventTapActive, let tap = eventTap {
             CGEvent.tapEnable(tap: tap, enable: true)
+        } else if accessibilityTrusted && !lastTapCreateFailed {
+            // First successful path only when we haven't already failed
+            installEventTap(force: false)
+        } else if accessibilityTrusted && !lastKnownAXTrusted {
+            // AX just became trusted — worth one retry
+            installEventTap(force: true)
         }
+        // NSEvent global monitors do not re-prompt TCC
         if accessibilityTrusted && !globalMonitorActive {
             installNSEventMonitors()
+        } else if !globalMonitorActive && !eventTapActive {
+            // Local-only fallback never needs special permissions
+            installNSEventMonitors()
         }
+        lastKnownAXTrusted = accessibilityTrusted
         isRegistered = eventTapActive || globalMonitorActive || localKeyMonitor != nil
         updateEngineStatus()
     }
@@ -155,13 +177,14 @@ final class ControlDictationInput {
         PermissionManager.shared.requestAccessibilityFromUser()
         refreshAccessibility()
         // Brief delay so TCC can update after user toggles
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.reinstallAll()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.lastTapCreateFailed = false
+            self?.reinstallAll(forceTap: true)
         }
     }
     
-    func reinstallAll() {
-        installEventTap()
+    func reinstallAll(forceTap: Bool = false) {
+        installEventTap(force: forceTap)
         installNSEventMonitors()
         isRegistered = eventTapActive || globalMonitorActive || localKeyMonitor != nil
         updateEngineStatus()
@@ -184,11 +207,34 @@ final class ControlDictationInput {
     
     // MARK: - CGEvent tap on dedicated thread
     
-    private func installEventTap() {
+    /// - Parameter force: bypass cooldown after user grants permissions.
+    private func installEventTap(force: Bool = false) {
+        // Already live — just ensure enabled
+        if eventTapActive, let existing = eventTap {
+            CGEvent.tapEnable(tap: existing, enable: true)
+            return
+        }
+        
+        // Avoid hammering CGEvent.tapCreate — macOS re-prompts Input Monitoring / AX
+        if !force && lastTapCreateFailed {
+            let elapsed = Date().timeIntervalSince(lastTapCreateAttempt)
+            if elapsed < tapCreateCooldown {
+                return
+            }
+        }
+        
+        // Prefer waiting until AX reports true to reduce failed creates (and prompts)
+        if !force && !AXIsProcessTrusted() {
+            lastTapCreateFailed = true
+            lastTapCreateAttempt = Date()
+            eventTapActive = false
+            return
+        }
+        
+        lastTapCreateAttempt = Date()
         tearDownTap()
         eventTapActive = false
         
-        // Try even if AX reports false — some systems lag; still attempt create
         let mask: CGEventMask =
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
@@ -222,11 +268,13 @@ final class ControlDictationInput {
         }
         
         guard let tap = createdTap else {
-            print("⚠️ CGEvent.tapCreate failed — grant Accessibility + Input Monitoring for Whisper67")
+            print("⚠️ CGEvent.tapCreate failed — grant Accessibility + Input Monitoring for Whisper67 (will not re-prompt until granted or cooldown)")
+            lastTapCreateFailed = true
             eventTapActive = false
             return
         }
         
+        lastTapCreateFailed = false
         eventTap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         runLoopSource = source

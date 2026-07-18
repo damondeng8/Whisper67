@@ -19,6 +19,9 @@ final class RecordingKeyMonitor {
     private var isActive = false
     private var lastFireAt: Date = .distantPast
     
+    /// Skip CGEvent.tapCreate after failure until AX becomes trusted (avoids re-prompts).
+    private var tapCreateBlockedUntilTrusted = false
+    
     var onConfirm: (() -> Void)?
     var onCancel: (() -> Void)?
     
@@ -28,8 +31,12 @@ final class RecordingKeyMonitor {
         stop()
         isActive = true
         
-        installEventTap()
-        installNSEventFallback() // always — belt and suspenders with the tap
+        // NSEvent fallback first (no extra TCC prompts). Tap only if AX is already trusted
+        // or we have not recently failed create.
+        installNSEventFallback()
+        if AXIsProcessTrusted() || !tapCreateBlockedUntilTrusted {
+            installEventTap()
+        }
         
         print("⌨️ RecordingKeyMonitor START (Enter=send, Esc=cancel)")
     }
@@ -77,9 +84,13 @@ final class RecordingKeyMonitor {
         }
         
         guard let tap = created else {
-            print("⚠️ RecordingKeyMonitor: CGEvent tap failed (need Accessibility)")
+            // Block further create attempts until Accessibility is granted — prevents TCC spam
+            tapCreateBlockedUntilTrusted = true
+            print("⚠️ RecordingKeyMonitor: CGEvent tap failed (need Accessibility) — using NSEvent only")
             return
         }
+        
+        tapCreateBlockedUntilTrusted = false
         
         eventTap = tap
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)

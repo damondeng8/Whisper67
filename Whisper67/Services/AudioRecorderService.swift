@@ -57,13 +57,29 @@ final class AudioRecorderService {
         #endif
     }
     
+    /// System dialog only when status is still undetermined. Safe to call often.
     static func requestMicrophoneAccess() async -> Bool {
         #if os(macOS)
+        // Already decided — never re-prompt
+        if microphoneAuthorized() { return true }
         if #available(macOS 14.0, *) {
+            switch AVAudioApplication.shared.recordPermission {
+            case .granted: return true
+            case .denied: return false
+            case .undetermined: break
+            @unknown default: break
+            }
             return await AVAudioApplication.requestRecordPermission()
         }
-        return await withCheckedContinuation { cont in
-            AVCaptureDevice.requestAccess(for: .audio) { cont.resume(returning: $0) }
+        switch AVCaptureDevice.authorizationStatus(for: .audio) {
+        case .authorized: return true
+        case .denied, .restricted: return false
+        case .notDetermined:
+            return await withCheckedContinuation { cont in
+                AVCaptureDevice.requestAccess(for: .audio) { cont.resume(returning: $0) }
+            }
+        @unknown default:
+            return false
         }
         #else
         return false

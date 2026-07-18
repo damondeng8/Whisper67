@@ -185,17 +185,15 @@ final class TranscriptionManager {
         print("🎙 beginDictation sticky=\(sticky) provider=\(appState.provider.rawValue)")
         
         #if os(macOS)
-        // Always re-check (TCC can change while Settings is open)
+        // Re-check silently. Only show the system dialog if still undetermined.
+        // Never auto-open System Settings mid-dictation (user uses Enable Microphone button).
         PermissionManager.shared.refresh()
         if !AudioRecorderService.microphoneAuthorized() {
-            // Try one async request if undetermined
-            let granted = await AudioRecorderService.requestMicrophoneAccess()
-            PermissionManager.shared.refresh()
-            if !granted && !AudioRecorderService.microphoneAuthorized() {
-                PermissionManager.shared.requestMicrophoneFromUser()
+            let granted = await PermissionManager.shared.ensureMicrophoneForDictation()
+            if !granted {
                 lastError = "Microphone permission required"
                 statusMessage = lastError ?? ""
-                overlayManager.flashMessage("Allow Microphone for Whisper67 in System Settings")
+                overlayManager.flashMessage("Allow Microphone in Settings → Privacy")
                 return
             }
         }
@@ -251,9 +249,8 @@ final class TranscriptionManager {
     @MainActor
     private func startRecording() {
         do {
-            // Ensure global key path is live before we need Enter/Esc
+            // Keep key path live without force-recreating CGEvent taps (avoids TCC re-prompts)
             controlInput.ensureActiveForSession()
-            controlInput.reinstallAll()
             
             try whisperService.startRecording()
             isTranscribing = true

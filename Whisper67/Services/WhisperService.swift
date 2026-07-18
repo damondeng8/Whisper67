@@ -45,8 +45,9 @@ class WhisperService {
     var onAudioBandsUpdate: (([Float]) -> Void)?
     
     init() {
-        // Defer heavy local model load until local provider is used
-        setupAudioPermission()
+        // Defer heavy local model load until local provider is used.
+        // Do not request mic here — PermissionManager.bootstrapOnce / dictation start own that
+        // so we never double-prompt on launch.
         recorder.onAudioLevelUpdate = { [weak self] level in
             self?.onAudioLevelUpdate?(level)
         }
@@ -89,17 +90,6 @@ class WhisperService {
             isLoading = false
             whisperKit = nil
         }
-    }
-    
-    private func setupAudioPermission() {
-        #if os(macOS)
-        if !AudioRecorderService.microphoneAuthorized() {
-            Task {
-                let granted = await AudioRecorderService.requestMicrophoneAccess()
-                print("🎤 Microphone permission: \(granted)")
-            }
-        }
-        #endif
     }
     
     func changeModel(_ modelName: String) {
