@@ -173,19 +173,82 @@ enum TranscriptFormatter {
     // MARK: - List mode
     
     private static func formatAsList(_ text: String) -> String {
-        let items = splitListItems(text)
+        // Keep greeting / lead-in as prose above the numbered items
+        let (intro, body) = splitIntroAndListBody(text)
+        let source = body.isEmpty ? text : body
+        
+        let items = splitListItems(source)
         guard items.count >= 2 else {
             if looksLikeExplicitList(text) {
-                let cleaned = stripListMarkers(text)
-                return cleaned.isEmpty ? text : "1. \(cleaned)"
+                let cleaned = stripListMarkers(source.isEmpty ? text : source)
+                let line = cleaned.isEmpty ? text : "1. \(cleaned)"
+                return mergeIntro(intro, list: line)
             }
             return text
         }
         
-        return items.enumerated().map { idx, item in
+        let list = items.enumerated().map { idx, item in
             let cleaned = stripListMarkers(item)
             return "\(idx + 1). \(cleaned)"
         }.joined(separator: "\n")
+        
+        return mergeIntro(intro, list: list)
+    }
+    
+    /// "hey John I need three things first milk second eggs" → intro + "first milk second eggs"
+    private static func splitIntroAndListBody(_ text: String) -> (intro: String, body: String) {
+        let patterns = [
+            #"(?i)\bnumber\s+(one|1|two|2)\b"#,
+            #"(?i)\b(firstly|first)\b"#,
+            #"(?i)(?:^|\n)\s*\d+[.)]\s+"#
+        ]
+        
+        var earliest: Range<String.Index>?
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(text.startIndex..., in: text)
+            guard let match = regex.firstMatch(in: text, range: range),
+                  let swiftRange = Range(match.range, in: text) else { continue }
+            // Only treat as list body start if there is real content before it
+            if swiftRange.lowerBound > text.startIndex {
+                if earliest == nil || swiftRange.lowerBound < earliest!.lowerBound {
+                    earliest = swiftRange
+                }
+            }
+        }
+        
+        guard let start = earliest else { return ("", text) }
+        
+        var intro = String(text[..<start.lowerBound])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Drop trailing conjunctions left hanging before the list
+        for suffix in [" and", " then", ":", ",", " —", " –", " -"] {
+            if intro.lowercased().hasSuffix(suffix) {
+                intro = String(intro.dropLast(suffix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        
+        let body = String(text[start.lowerBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Intro must look like prose (not already an item); require a few letters
+        guard intro.count >= 3, intro.split(whereSeparator: { $0.isWhitespace }).count >= 1 else {
+            return ("", text)
+        }
+        
+        return (intro, body)
+    }
+    
+    private static func mergeIntro(_ intro: String, list: String) -> String {
+        let trimmedIntro = intro.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedIntro.isEmpty else { return list }
+        // Ensure intro ends cleanly before list
+        var head = trimmedIntro
+        if let last = head.last, last.isLetter || last == "'" || last == "’" {
+            // No forced period — style pass may adjust
+        }
+        return head + "\n" + list
     }
     
     private static func looksLikeExplicitList(_ text: String) -> Bool {

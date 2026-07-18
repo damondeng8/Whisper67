@@ -252,7 +252,8 @@ struct ModesTab: View {
     
     private var sampleRaw: String {
         if appState.listModeEnabled {
-            return "first buy milk second get eggs third pick up bread"
+            // Shows intro+list path (Auto list should number items, keep greeting)
+            return "hey John first buy milk second get eggs third pick up bread"
         }
         switch appState.dictationStyle {
         case .casual:

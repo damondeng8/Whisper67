@@ -51,13 +51,22 @@ enum AppAppearance: String, CaseIterable, Identifiable {
     }
     
     func applyToApp() {
+        let resolved: NSAppearance?
         switch self {
         case .system:
-            NSApp.appearance = nil
+            resolved = nil
         case .light:
-            NSApp.appearance = NSAppearance(named: .aqua)
+            resolved = NSAppearance(named: .aqua)
         case .dark:
-            NSApp.appearance = NSAppearance(named: .darkAqua)
+            resolved = NSAppearance(named: .darkAqua)
+        }
+        NSApp.appearance = resolved
+        // Force open windows to drop a previous light/dark lock (Auto was sticky)
+        for window in NSApp.windows {
+            window.appearance = resolved
+            window.contentView?.appearance = resolved
+            window.contentView?.needsDisplay = true
+            window.invalidateShadow()
         }
     }
 }

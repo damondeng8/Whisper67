@@ -193,10 +193,12 @@ class WhisperService {
         let preCorrected = SelfCorrection.apply(text)
         
         let listDetection = ListDetector.analyze(preCorrected)
-        let listLikely = appState.listModeEnabled && listDetection.isLikelyList
+        let listModeOn = appState.listModeEnabled
+        let listLikely = listModeOn && listDetection.isLikelyList
+        AppLog.info("📋 Auto list: enabled=\(listModeOn) likely=\(listLikely) score=\(listDetection.score) — \(listDetection.reason)")
         
         let runOSS = appState.canRunAIPolish
-            || (appState.listModeEnabled && appState.hasGroqKey && listDetection.isLikelyList)
+            || (listModeOn && appState.hasGroqKey && listLikely)
         
         var result: String
         if runOSS {
@@ -206,26 +208,57 @@ class WhisperService {
             let polished = await TranscriptCleanupService.polish(
                 preCorrected,
                 style: appState.dictationStyle,
-                listModeEnabled: appState.listModeEnabled,
+                listModeEnabled: listModeOn,
                 listLikely: listLikely,
                 dictionaryWords: appState.customWords.map(\.word),
                 groqAPIKey: appState.groqKey,
                 strength: strength
             )
             let base = polished.trimmingCharacters(in: .whitespacesAndNewlines)
-            let useLocalList = listLikely && (base == preCorrected || !ListDetector.looksLikeNumberedList(base))
+            let source = base.isEmpty ? preCorrected : base
+            
+            // If detector says list but OSS didn't number items, force local 1. 2. 3.
+            let needsLocalList = listLikely && !ListDetector.looksLikeNumberedList(source)
             result = TranscriptFormatter.format(
-                base.isEmpty ? preCorrected : base,
+                source,
                 style: appState.dictationStyle,
-                listMode: useLocalList
+                listMode: needsLocalList
             )
+            
+            // Still not a list after local format? try format with force again on preCorrected
+            if listLikely && !ListDetector.looksLikeNumberedList(result) {
+                let forced = TranscriptFormatter.format(
+                    preCorrected,
+                    style: appState.dictationStyle,
+                    listMode: true
+                )
+                if ListDetector.looksLikeNumberedList(forced) {
+                    result = forced
+                }
+            }
+            
+            // Detector said prose — strip accidental numbered lists from OSS
+            if listModeOn && !listLikely && ListDetector.looksLikeNumberedList(result) {
+                result = ListDetector.demoteNumberedListToProse(result)
+                result = TranscriptFormatter.format(result, style: appState.dictationStyle, listMode: false)
+            }
         } else {
+            // Local-only path (Auto list without Groq, or polish off)
             result = appState.formatTranscript(preCorrected, forceList: listLikely)
         }
         
         // Final pass: corrections + times must win even if OSS undid them
         result = SelfCorrection.apply(result)
         result = IntentVocabulary.localRepair(result, userDictionary: appState.customWords.map(\.word))
+        
+        // Re-assert list shape after self-correction if it collapsed newlines
+        if listLikely && !ListDetector.looksLikeNumberedList(result) {
+            let reList = TranscriptFormatter.format(result, style: appState.dictationStyle, listMode: true)
+            if ListDetector.looksLikeNumberedList(reList) {
+                result = reList
+            }
+        }
+        
         return result
     }
     

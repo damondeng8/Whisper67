@@ -69,7 +69,9 @@ struct SettingsView: View {
         .frame(minWidth: 820, minHeight: 560)
         .frame(idealWidth: 900, idealHeight: 640)
         .background { DengBrand.meshBackground }
+        // Re-apply when switching Auto ↔ Light ↔ Dark (nil alone can stick after force)
         .preferredColorScheme(appState.appearance.colorScheme)
+        .id("appearance-\(appState.appearance.rawValue)")
     }
     
     private var sidebar: some View {
