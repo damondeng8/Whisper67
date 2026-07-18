@@ -196,6 +196,13 @@ class WhisperService {
     
     /// list detect → optional OSS → style → **always** self-correct + times at the end.
     private func finalizeTranscript(_ text: String, appState: AppState) async -> String {
+        // Raw mode: paste Whisper exactly — no style, polish, list rewrite, or self-correction
+        if appState.dictationStyle.isRaw {
+            let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            AppLog.info("🎙 Raw mode — skipping post-processing")
+            return raw
+        }
+        
         // Local corrections first (even before OSS) so final intent is already clean
         let preCorrected = SelfCorrection.apply(text)
         

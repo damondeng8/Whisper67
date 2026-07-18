@@ -250,6 +250,13 @@ enum TranscriptCleanupService {
         
         // Style is mandatory output shape (local formatter also enforces after)
         switch style {
+        case .raw:
+            rules.append(contentsOf: [
+                "WRITING STYLE — RAW (required):",
+                "- Keep the transcript as close to the original as possible.",
+                "- Only fix clear transcription errors; do not restyle punctuation or tone.",
+                ""
+            ])
         case .casual:
             rules.append(contentsOf: [
                 "WRITING STYLE — CASUAL (required):",

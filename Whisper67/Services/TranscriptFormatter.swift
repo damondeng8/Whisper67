@@ -55,6 +55,7 @@ enum TranscriptFormatter {
     
     private static func applyStyleToProse(_ text: String, style: DictationStyle) -> String {
         switch style {
+        case .raw: return text
         case .casual: return applyCasual(text)
         case .normal: return applyNormal(text)
         case .formal: return applyFormal(text)

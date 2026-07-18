@@ -67,6 +67,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable, Codable {
 // MARK: - Dictation style modes
 
 enum DictationStyle: String, CaseIterable, Identifiable, Codable {
+    case raw
     case casual
     case normal
     case formal
@@ -75,6 +76,7 @@ enum DictationStyle: String, CaseIterable, Identifiable, Codable {
     
     var displayName: String {
         switch self {
+        case .raw: return "Raw"
         case .casual: return "Casual"
         case .normal: return "Normal"
         case .formal: return "Formal"
@@ -83,6 +85,8 @@ enum DictationStyle: String, CaseIterable, Identifiable, Codable {
     
     var subtitle: String {
         switch self {
+        case .raw:
+            return "Exact Whisper output · no style, polish, or rewrites"
         case .casual:
             return "lowercase · chatty · keep slang & contractions"
         case .normal:
@@ -94,11 +98,15 @@ enum DictationStyle: String, CaseIterable, Identifiable, Codable {
     
     var icon: String {
         switch self {
+        case .raw: return "waveform"
         case .casual: return "bubble.left"
         case .normal: return "text.alignleft"
         case .formal: return "text.book.closed"
         }
     }
+    
+    /// True when we should not run style / OSS / self-correction.
+    var isRaw: Bool { self == .raw }
     
     /// Soft vocabulary-style priming only (Whisper `prompt` is NOT an instruction field).
     /// Real style is applied after STT by `TranscriptFormatter` — never tell Whisper to drop punctuation.
@@ -110,9 +118,9 @@ enum DictationStyle: String, CaseIterable, Identifiable, Codable {
     
     /// Migrate old stored raw values.
     static func fromStored(_ raw: String?) -> DictationStyle {
-        guard let raw else { return .casual }
+        guard let raw else { return .raw }
         if raw == "periodsOnly" { return .normal } // old mode → Normal
-        return DictationStyle(rawValue: raw) ?? .casual
+        return DictationStyle(rawValue: raw) ?? .raw
     }
 }
 
@@ -447,9 +455,9 @@ final class AppState {
         dictationStyle = DictationStyle.fromStored(defaults.string(forKey: Keys.dictationStyle))
         listModeEnabled = defaults.bool(forKey: Keys.listMode)
         
-        // Default AI polish ON when unset (Wispr-like); needs Groq key at runtime
+        // Default polish OFF — prefer accurate raw Whisper; user can enable OSS in Modes
         if defaults.object(forKey: Keys.aiPolish) == nil {
-            aiPolishEnabled = true
+            aiPolishEnabled = false
         } else {
             aiPolishEnabled = defaults.bool(forKey: Keys.aiPolish)
         }
@@ -529,6 +537,10 @@ final class AppState {
     /// Apply self-corrections + dictionary repair + style (no LLM).
     /// - Parameter forceList: only true when `ListDetector` says this utterance is a list.
     func formatTranscript(_ raw: String, forceList: Bool? = nil) -> String {
+        // Raw mode: Whisper text only (trim whitespace)
+        if dictationStyle.isRaw {
+            return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         var intended = SelfCorrection.apply(raw)
         intended = IntentVocabulary.localRepair(intended, userDictionary: customWords.map(\.word))
         let useList: Bool

@@ -256,6 +256,8 @@ struct ModesTab: View {
             return "hey John first buy milk second get eggs third pick up bread"
         }
         switch appState.dictationStyle {
+        case .raw:
+            return "Hey, don't forget — we'll need the report ready by Friday at 3:30pm."
         case .casual:
             return "Hey don't forget we'll need the report ready by Friday"
         case .normal:
