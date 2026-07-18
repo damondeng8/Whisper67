@@ -252,6 +252,9 @@ final class TranscriptionManager {
             // Keep key path live without force-recreating CGEvent taps (avoids TCC re-prompts)
             controlInput.ensureActiveForSession()
             
+            // Pause Music / Spotify / browser media so the mic hears you
+            MediaPauseService.shared.pauseForDictation()
+            
             try whisperService.startRecording()
             isTranscribing = true
             isConfirming = false
@@ -287,6 +290,7 @@ final class TranscriptionManager {
             sessionKeys.stop()
             controlInput.isRecording = false
             controlInput.resetSessionFlags()
+            MediaPauseService.shared.resumeAfterDictation()
             lastError = error.localizedDescription
             statusMessage = error.localizedDescription
             overlayManager.flashMessage(error.localizedDescription)
@@ -314,6 +318,7 @@ final class TranscriptionManager {
         overlayManager.hideOverlay()
         lastError = nil
         statusMessage = "Cancelled"
+        MediaPauseService.shared.resumeAfterDictation()
         updateStatusMessage()
     }
     
@@ -325,6 +330,8 @@ final class TranscriptionManager {
             self.isStickySession = false
             self.controlInput.isRecording = false
             self.controlInput.resetSessionFlags()
+            // Resume music/video after we stop listening
+            MediaPauseService.shared.resumeAfterDictation()
             
             switch outcome {
             case .failure(let message, _):

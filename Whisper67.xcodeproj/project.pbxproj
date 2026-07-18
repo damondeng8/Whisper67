@@ -41,6 +41,7 @@
 		1A2B3C4D5E6F7890ABCDEF60 /* AppLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF61 /* AppLog.swift */; };
 		1A2B3C4D5E6F7890ABCDEF62 /* TranscriptionOutcome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF63 /* TranscriptionOutcome.swift */; };
 		1A2B3C4D5E6F7890ABCDEF70 /* SelfCorrection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF71 /* SelfCorrection.swift */; };
+		1A2B3C4D5E6F7890ABCDEF72 /* MediaPauseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2B3C4D5E6F7890ABCDEF73 /* MediaPauseService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -79,6 +80,7 @@
 		1A2B3C4D5E6F7890ABCDEF61 /* AppLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLog.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF63 /* TranscriptionOutcome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionOutcome.swift; sourceTree = "<group>"; };
 		1A2B3C4D5E6F7890ABCDEF71 /* SelfCorrection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SelfCorrection.swift; sourceTree = "<group>"; };
+		1A2B3C4D5E6F7890ABCDEF73 /* MediaPauseService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaPauseService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -166,6 +168,7 @@
 				1A2B3C4D5E6F7890ABCDEF59 /* TranscriptCleanupService.swift */,
 				1A2B3C4D5E6F7890ABCDEF5B /* IntentVocabulary.swift */,
 				1A2B3C4D5E6F7890ABCDEF71 /* SelfCorrection.swift */,
+				1A2B3C4D5E6F7890ABCDEF73 /* MediaPauseService.swift */,
 				1A2B3C4D5E6F7890ABCDEF5D /* ListDetector.swift */,
 				1A2B3C4D5E6F7890ABCDEF63 /* TranscriptionOutcome.swift */,
 				1A2B3C4D5E6F7890ABCDEF61 /* AppLog.swift */,
@@ -272,6 +275,7 @@
 				1A2B3C4D5E6F7890ABCDEF58 /* TranscriptCleanupService.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF5A /* IntentVocabulary.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF70 /* SelfCorrection.swift in Sources */,
+				1A2B3C4D5E6F7890ABCDEF72 /* MediaPauseService.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF5C /* ListDetector.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF62 /* TranscriptionOutcome.swift in Sources */,
 				1A2B3C4D5E6F7890ABCDEF60 /* AppLog.swift in Sources */,

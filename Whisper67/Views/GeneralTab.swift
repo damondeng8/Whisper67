@@ -137,6 +137,18 @@ struct GeneralTab: View {
                                 .toggleStyle(.switch)
                                 .tint(DengBrand.ink)
                         }
+                        
+                        Divider().padding(.leading, 16)
+                        
+                        GlassSettingRow(
+                            title: "Pause media while dictating",
+                            subtitle: "Auto-pause Music, Spotify, videos, and other Now Playing audio — resumes when you finish"
+                        ) {
+                            Toggle("", isOn: $appState.pauseMediaDuringDictation)
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .tint(DengBrand.ink)
+                        }
                     }
                 }
                 

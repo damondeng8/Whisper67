@@ -286,6 +286,11 @@ final class AppState {
         didSet { UserDefaults.standard.set(autoPaste, forKey: Keys.autoPaste) }
     }
     
+    /// Pause Music / Spotify / browser media while dictating; resume after.
+    var pauseMediaDuringDictation: Bool {
+        didSet { UserDefaults.standard.set(pauseMediaDuringDictation, forKey: Keys.pauseMedia) }
+    }
+    
     /// When false, Control hold / double-tap do nothing. Classic toggle hotkey still works.
     var controlPushToTalkEnabled: Bool {
         didSet { UserDefaults.standard.set(controlPushToTalkEnabled, forKey: Keys.controlPTT) }
@@ -398,6 +403,7 @@ final class AppState {
         static let menuBar = "whisper67.menuBar"
         static let launchAtLogin = "whisper67.launchAtLogin"
         static let autoPaste = "whisper67.autoPaste"
+        static let pauseMedia = "whisper67.pauseMediaDuringDictation"
         static let controlPTT = "whisper67.controlPushToTalk"
         static let dictationStyle = "whisper67.dictationStyle"
         static let listMode = "whisper67.listMode"
@@ -443,6 +449,13 @@ final class AppState {
             autoPaste = true
         } else {
             autoPaste = defaults.bool(forKey: Keys.autoPaste)
+        }
+        
+        // Default ON — duck Music/Spotify/videos while talking
+        if defaults.object(forKey: Keys.pauseMedia) == nil {
+            pauseMediaDuringDictation = true
+        } else {
+            pauseMediaDuringDictation = defaults.bool(forKey: Keys.pauseMedia)
         }
         
         // Default ON for Control PTT unless user previously turned it off
