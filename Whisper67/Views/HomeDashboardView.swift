@@ -40,7 +40,7 @@ struct HomeDashboardView: View {
                             HStack(spacing: 12) {
                                 ZStack {
                                     Circle()
-                                        .fill(Color.black.opacity(0.06))
+                                        .fill(DengBrand.chipInset)
                                         .frame(width: 30, height: 30)
                                     Image(systemName: "waveform")
                                         .font(.system(size: 12, weight: .semibold))
@@ -72,7 +72,7 @@ struct HomeDashboardView: View {
                                         Capsule()
                                             .strokeBorder(DengBrand.glassStroke, lineWidth: 1)
                                     }
-                                    .shadow(color: Color.black.opacity(0.08), radius: 16, y: 6)
+                                    .shadow(color: DengBrand.shadow, radius: 16, y: 6)
                             }
                             Spacer()
                         }
@@ -173,7 +173,7 @@ struct HomeDashboardView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background {
                                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.black.opacity(0.04))
+                                    .fill(DengBrand.wash)
                             }
                         }
                     }
@@ -412,7 +412,7 @@ struct HomeDashboardView: View {
                     .foregroundStyle(DengBrand.ink)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 7)
-                    .background(Capsule().fill(Color.black.opacity(0.06)))
+                    .background(Capsule().fill(DengBrand.chipInset))
             }
         }
     }

@@ -118,19 +118,10 @@ struct HotkeysTab: View {
                                     }
                                     .padding(.vertical, 12)
                                     .background {
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .fill(appState.hotkey == preset
-                                                  ? Color.black.opacity(0.07)
-                                                  : Color.black.opacity(0.03))
-                                            .overlay {
-                                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                    .strokeBorder(
-                                                        appState.hotkey == preset
-                                                            ? Color.black.opacity(0.16)
-                                                            : Color.clear,
-                                                        lineWidth: 1
-                                                    )
-                                            }
+                                        SelectChipBackground(
+                                            isSelected: appState.hotkey == preset,
+                                            cornerRadius: 12
+                                        )
                                     }
                                 }
                                 .buttonStyle(.plain)

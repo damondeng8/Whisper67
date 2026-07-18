@@ -25,7 +25,7 @@ struct DictionaryTab: View {
                                 .padding(.vertical, 10)
                                 .background {
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.primary.opacity(0.05))
+                                        .fill(DengBrand.chipInset)
                                 }
                                 .focused($fieldFocused)
                                 .onSubmit { addWord() }

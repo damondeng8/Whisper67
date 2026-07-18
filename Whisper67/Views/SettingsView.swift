@@ -40,6 +40,7 @@ struct SettingsView: View {
     @State private var selectedTab: SettingsTab = .home
     @State private var appState = AppState.shared
     @State private var manager = TranscriptionManager.shared
+    @Environment(\.colorScheme) private var colorScheme
     
     var body: some View {
         HStack(spacing: 0) {
@@ -51,8 +52,8 @@ struct SettingsView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.6),
-                            Color.white.opacity(0.15),
+                            Color.white.opacity(colorScheme == .dark ? 0.14 : 0.55),
+                            Color.white.opacity(colorScheme == .dark ? 0.04 : 0.12),
                             Color.clear
                         ],
                         startPoint: .top,
@@ -68,6 +69,7 @@ struct SettingsView: View {
         .frame(minWidth: 820, minHeight: 560)
         .frame(idealWidth: 900, idealHeight: 640)
         .background { DengBrand.meshBackground }
+        .preferredColorScheme(appState.appearance.colorScheme)
     }
     
     private var sidebar: some View {
@@ -81,21 +83,41 @@ struct SettingsView: View {
                     .frame(width: 40, height: 40)
                     .background(
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .fill(Color.black)
+                            .fill(
+                                LinearGradient(
+                                    colors: colorScheme == .dark
+                                        ? [
+                                            Color(red: 0.18, green: 0.20, blue: 0.28),
+                                            Color(red: 0.08, green: 0.09, blue: 0.14)
+                                          ]
+                                        : [Color.black, Color(white: 0.12)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                     )
                     .overlay {
                         RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                            .strokeBorder(
+                                Color.white.opacity(colorScheme == .dark ? 0.22 : 0.18),
+                                lineWidth: 1
+                            )
                     }
-                    .shadow(color: Color.black.opacity(0.12), radius: 10, y: 4)
+                    .shadow(
+                        color: colorScheme == .dark
+                            ? DengBrand.glow.opacity(0.25)
+                            : Color.black.opacity(0.12),
+                        radius: colorScheme == .dark ? 14 : 10,
+                        y: 4
+                    )
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(DengBrand.name)
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(DengBrand.ink)
                     Text(DengBrand.tagline)
                         .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DengBrand.graphite.opacity(0.85))
                 }
             }
             .padding(.horizontal, 18)
@@ -119,12 +141,27 @@ struct SettingsView: View {
             
             Spacer()
             
+            // Quick light / dark toggle
+            appearanceToggle
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+            
             // Footer glass chip
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Circle()
-                        .fill(manager.isTranscribing ? DengBrand.ink : DengBrand.silver.opacity(0.5))
+                        .fill(
+                            manager.isTranscribing
+                                ? (colorScheme == .dark ? DengBrand.glow : DengBrand.ink)
+                                : DengBrand.silver.opacity(0.55)
+                        )
                         .frame(width: 7, height: 7)
+                        .shadow(
+                            color: manager.isTranscribing && colorScheme == .dark
+                                ? DengBrand.glow.opacity(0.7)
+                                : .clear,
+                            radius: 5
+                        )
                     Text(manager.isTranscribing ? "Listening" : "Ready")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(DengBrand.ink)
@@ -132,7 +169,7 @@ struct SettingsView: View {
                 
                 Text("\(appState.usageStats.formattedWords) words · \(appState.provider.displayName)")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(DengBrand.graphite.opacity(0.65))
+                    .foregroundStyle(DengBrand.graphite.opacity(0.7))
                     .lineLimit(2)
             }
             .padding(14)
@@ -142,15 +179,30 @@ struct SettingsView: View {
                     .fill(.ultraThinMaterial)
                     .overlay {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.45), lineWidth: 1)
+                            .strokeBorder(
+                                LinearGradient(
+                                    colors: [
+                                        Color.white.opacity(colorScheme == .dark ? 0.18 : 0.55),
+                                        Color.white.opacity(colorScheme == .dark ? 0.05 : 0.15)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1
+                            )
                     }
             }
             .padding(14)
         }
         .background {
             ZStack {
-                Color.white.opacity(0.28)
-                Rectangle().fill(.ultraThinMaterial).opacity(0.55)
+                if colorScheme == .dark {
+                    Color.white.opacity(0.03)
+                    Rectangle().fill(.ultraThinMaterial).opacity(0.35)
+                } else {
+                    Color.white.opacity(0.28)
+                    Rectangle().fill(.ultraThinMaterial).opacity(0.55)
+                }
             }
         }
     }
@@ -173,6 +225,68 @@ struct SettingsView: View {
         case .general:
             GeneralTab(appState: appState)
         }
+    }
+    
+    /// Compact Light | Dark | Auto control in the sidebar.
+    private var appearanceToggle: some View {
+        HStack(spacing: 0) {
+            appearanceSegment(mode: .light, icon: "sun.max.fill", label: "Light")
+            appearanceSegment(mode: .dark, icon: "moon.fill", label: "Dark")
+            appearanceSegment(mode: .system, icon: "circle.lefthalf.filled", label: "Auto")
+        }
+        .padding(3)
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    Capsule()
+                        .strokeBorder(
+                            Color.white.opacity(colorScheme == .dark ? 0.12 : 0.4),
+                            lineWidth: 1
+                        )
+                }
+        }
+    }
+    
+    private func appearanceSegment(mode: AppAppearance, icon: String, label: String) -> some View {
+        let selected = appState.appearance == mode
+        return Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                appState.appearance = mode
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(
+                selected
+                    ? (colorScheme == .dark && mode == .dark ? DengBrand.glow : DengBrand.ink)
+                    : DengBrand.graphite.opacity(0.75)
+            )
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .background {
+                if selected {
+                    Capsule()
+                        .fill(DengBrand.chipSelected)
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(
+                                    colorScheme == .dark
+                                        ? DengBrand.glow.opacity(0.35)
+                                        : DengBrand.strokeSelected,
+                                    lineWidth: 1
+                                )
+                        }
+                        .shadow(color: Color.black.opacity(0.08), radius: 4, y: 1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .help("Appearance: \(mode.title)")
     }
 }
 

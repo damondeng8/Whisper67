@@ -152,6 +152,8 @@ struct TranscriptionOverlayView: View {
     let onCancel: () -> Void
     let onConfirm: () -> Void
     
+    @Environment(\.colorScheme) private var colorScheme
+    
     static let pillWidth: CGFloat = 360
     static let pillHeight: CGFloat = 52
     
@@ -160,21 +162,26 @@ struct TranscriptionOverlayView: View {
             // Soft status dot
             Circle()
                 .fill(viewModel.state == .listening
-                      ? Color.primary.opacity(0.75)
+                      ? (colorScheme == .dark ? DengBrand.glow.opacity(0.9) : Color.primary.opacity(0.75))
                       : Color.primary.opacity(0.35))
                 .frame(width: 7, height: 7)
-                .shadow(color: .primary.opacity(viewModel.state == .listening ? 0.25 : 0), radius: 3)
+                .shadow(
+                    color: viewModel.state == .listening
+                        ? (colorScheme == .dark ? DengBrand.glow.opacity(0.55) : Color.primary.opacity(0.25))
+                        : .clear,
+                    radius: 4
+                )
             
             VStack(alignment: .leading, spacing: 2) {
                 Text(viewModel.statusText)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary.opacity(0.9))
+                    .foregroundStyle(.primary.opacity(0.92))
                     .lineLimit(1)
                 
                 if case .listening = viewModel.state {
                     Text(viewModel.isSticky ? "⏎ send · esc cancel · drag" : "release ⌃ · drag")
                         .font(.system(size: 9, weight: .medium, design: .rounded))
-                        .foregroundStyle(.primary.opacity(0.4))
+                        .foregroundStyle(.primary.opacity(0.42))
                         .lineLimit(1)
                 }
             }
@@ -197,12 +204,20 @@ struct TranscriptionOverlayView: View {
                     Button(action: onConfirm) {
                         Image(systemName: "return")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.95))
+                            .foregroundStyle(colorScheme == .dark ? Color.black.opacity(0.9) : Color.white.opacity(0.95))
                             .frame(width: 28, height: 28)
                             .background {
                                 Circle()
-                                    .fill(Color.black.opacity(0.5))
-                                    .overlay(Circle().strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5))
+                                    .fill(
+                                        colorScheme == .dark
+                                            ? AnyShapeStyle(LinearGradient(
+                                                colors: [Color.white.opacity(0.95), Color.white.opacity(0.78)],
+                                                startPoint: .top,
+                                                endPoint: .bottom
+                                              ))
+                                            : AnyShapeStyle(Color.black.opacity(0.5))
+                                    )
+                                    .overlay(Circle().strokeBorder(Color.white.opacity(0.18), lineWidth: 0.5))
                             }
                     }
                     .buttonStyle(.plain)
@@ -215,8 +230,8 @@ struct TranscriptionOverlayView: View {
                             .frame(width: 28, height: 28)
                             .background {
                                 Circle()
-                                    .fill(Color.primary.opacity(0.06))
-                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                                    .fill(Color.primary.opacity(colorScheme == .dark ? 0.10 : 0.06))
+                                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
                             }
                     }
                     .buttonStyle(.plain)
@@ -233,11 +248,17 @@ struct TranscriptionOverlayView: View {
                     Capsule()
                         .fill(
                             LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.28),
-                                    Color.white.opacity(0.06),
-                                    Color.black.opacity(0.04)
-                                ],
+                                colors: colorScheme == .dark
+                                    ? [
+                                        Color.white.opacity(0.14),
+                                        Color.white.opacity(0.04),
+                                        Color(red: 0.2, green: 0.3, blue: 0.6).opacity(0.08)
+                                      ]
+                                    : [
+                                        Color.white.opacity(0.28),
+                                        Color.white.opacity(0.06),
+                                        Color.black.opacity(0.04)
+                                      ],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -247,17 +268,28 @@ struct TranscriptionOverlayView: View {
                     Capsule()
                         .strokeBorder(
                             LinearGradient(
-                                colors: [
-                                    Color.white.opacity(0.55),
-                                    Color.white.opacity(0.12)
-                                ],
+                                colors: colorScheme == .dark
+                                    ? [
+                                        Color.white.opacity(0.32),
+                                        Color.white.opacity(0.08),
+                                        DengBrand.glow.opacity(0.15)
+                                      ]
+                                    : [
+                                        Color.white.opacity(0.55),
+                                        Color.white.opacity(0.12)
+                                      ],
                                 startPoint: .topLeading,
                                 endPoint: .bottomTrailing
                             ),
-                            lineWidth: 0.75
+                            lineWidth: 0.85
                         )
                 }
-                .shadow(color: .black.opacity(0.16), radius: 18, y: 8)
+                .shadow(color: .black.opacity(colorScheme == .dark ? 0.45 : 0.16), radius: 20, y: 10)
+                .shadow(
+                    color: colorScheme == .dark ? DengBrand.glow.opacity(0.12) : .clear,
+                    radius: 24,
+                    y: 4
+                )
         }
         .clipShape(Capsule())
         .contentShape(Capsule())

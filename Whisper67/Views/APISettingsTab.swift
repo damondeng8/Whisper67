@@ -225,8 +225,8 @@ struct APISettingsTab: View {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .strokeBorder(
                                 appState.provider == provider
-                                    ? Color.black.opacity(0.18)
-                                    : Color.white.opacity(0.45),
+                                    ? DengBrand.strokeSelected
+                                    : DengBrand.stroke,
                                 lineWidth: 1
                             )
                     }

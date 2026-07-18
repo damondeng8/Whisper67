@@ -310,6 +310,14 @@ final class AppState {
         }
     }
     
+    /// UI appearance: system / light / dark liquid glass.
+    var appearance: AppAppearance {
+        didSet {
+            UserDefaults.standard.set(appearance.rawValue, forKey: Keys.appearance)
+            appearance.applyToApp()
+        }
+    }
+    
     /// Human label for the strength slider.
     var aiPolishStrengthLabel: String {
         switch aiPolishStrength {
@@ -391,6 +399,7 @@ final class AppState {
         static let listMode = "whisper67.listMode"
         static let aiPolish = "whisper67.aiPolish"
         static let aiPolishStrength = "whisper67.aiPolishStrength"
+        static let appearance = "whisper67.appearance"
         static let openAIKey = "openai_api_key"
         static let groqKey = "groq_api_key"
         static let customWords = "whisper67.customWords"
@@ -455,6 +464,15 @@ final class AppState {
         } else {
             aiPolishStrength = min(1, max(0, defaults.double(forKey: Keys.aiPolishStrength)))
         }
+        
+        if let raw = defaults.string(forKey: Keys.appearance),
+           let a = AppAppearance(rawValue: raw) {
+            appearance = a
+        } else {
+            appearance = .system
+        }
+        // Apply without re-writing UserDefaults (didSet not needed on init path for persist)
+        appearance.applyToApp()
         
         // Load dictionary + stats BEFORE clearing hydrate flag (never wipe on boot)
         if let data = defaults.data(forKey: Keys.customWords),

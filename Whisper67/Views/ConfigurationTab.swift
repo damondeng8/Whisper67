@@ -122,7 +122,7 @@ struct ConfigurationTab: View {
                     .frame(width: 140)
                 }
             }
-            .background(Color.white.opacity(0.4))
+            .background(DengBrand.chip)
             .cornerRadius(8)
             .padding(.horizontal, 24)
             
@@ -144,15 +144,15 @@ struct ConfigurationTab: View {
                             } else {
                                 Text(estimatedStorageUsed())
                                     .font(.system(size: 11))
-                                    .foregroundColor(.black)
+                                    .foregroundStyle(DengBrand.ink)
                                 Text("Used")
                                     .font(.system(size: 10))
-                                    .foregroundColor(.black.opacity(0.6))
+                                    .foregroundStyle(DengBrand.graphite)
                             }
                         }
                     }
                 }
-                .background(Color.white.opacity(0.4))
+                .background(DengBrand.chip)
                 .cornerRadius(8)
                 .padding(.horizontal, 24)
                 .padding(.top, 12)

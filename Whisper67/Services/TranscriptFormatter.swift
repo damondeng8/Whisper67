@@ -62,58 +62,102 @@ enum TranscriptFormatter {
     }
     
     /// Casual / chat: mostly lowercase, keep contractions & informal voice.
+    /// Times like `3:30pm` / `3pm` are protected so `:` is never turned into `,`.
     private static func applyCasual(_ text: String) -> String {
-        var t = text
-        for ch in ["!", "?", ";", ":"] {
-            t = t.replacingOccurrences(of: ch, with: ",")
+        withProtectedTimes(text) { body in
+            var t = body
+            for ch in ["!", "?", ";"] {
+                t = t.replacingOccurrences(of: ch, with: ",")
+            }
+            // Do not replace bare ":" here — times are masked; any leftover ":" is clause-ish → comma
+            t = t.replacingOccurrences(of: ":", with: ",")
+            t = t.replacingOccurrences(of: ". ", with: ", ")
+            t = t.replacingOccurrences(of: ".", with: "")
+            
+            t = cleanupWhitespace(t)
+            t = t.lowercased()
+            
+            while t.contains(",,") { t = t.replacingOccurrences(of: ",,", with: ",") }
+            t = t.replacingOccurrences(of: " ,", with: ",")
+            while t.hasSuffix(",") || t.hasSuffix(" ") {
+                t = String(t.dropLast()).trimmingCharacters(in: .whitespaces)
+            }
+            return cleanupWhitespace(t)
         }
-        t = t.replacingOccurrences(of: ". ", with: ", ")
-        t = t.replacingOccurrences(of: ".", with: "")
-        
-        t = cleanupWhitespace(t)
-        t = t.lowercased()
-        
-        while t.contains(",,") { t = t.replacingOccurrences(of: ",,", with: ",") }
-        t = t.replacingOccurrences(of: " ,", with: ",")
-        while t.hasSuffix(",") || t.hasSuffix(" ") {
-            t = String(t.dropLast()).trimmingCharacters(in: .whitespaces)
-        }
-        return cleanupWhitespace(t)
     }
     
     /// Normal: commas for pauses, no periods / ! / ?
+    /// Times kept intact (`3pm`, `3:30pm`) — never `3,00`.
     private static func applyNormal(_ text: String) -> String {
-        var t = text
-        
-        let toComma = ["!", "?", ";", ":", "—", "–", "…", "."]
-        for ch in toComma {
-            t = t.replacingOccurrences(of: ch, with: ",")
-        }
-        
-        var out = ""
-        out.reserveCapacity(t.count)
-        for ch in t {
-            if ch.isLetter || ch.isNumber || ch == "," || ch == "'" || ch == "’" || ch == "\n" {
-                out.append(ch)
-            } else if ch.isWhitespace {
-                out.append(" ")
+        withProtectedTimes(text) { body in
+            var t = body
+            
+            let toComma = ["!", "?", ";", "—", "–", "…", ".", ":"]
+            for ch in toComma {
+                t = t.replacingOccurrences(of: ch, with: ",")
             }
+            
+            var out = ""
+            out.reserveCapacity(t.count)
+            for ch in t {
+                if ch.isLetter || ch.isNumber || ch == "," || ch == "'" || ch == "’" || ch == "\n" {
+                    out.append(ch)
+                } else if ch.isWhitespace {
+                    out.append(" ")
+                }
+            }
+            
+            t = cleanupWhitespace(out)
+            while t.contains(",,") { t = t.replacingOccurrences(of: ",,", with: ",") }
+            t = t.replacingOccurrences(of: " ,", with: ",")
+            t = t.replacingOccurrences(of: ",", with: ", ")
+            t = cleanupWhitespace(t)
+            while t.contains(", ,") { t = t.replacingOccurrences(of: ", ,", with: ", ") }
+            while t.hasSuffix(",") || t.hasSuffix(", ") {
+                if t.hasSuffix(", ") { t = String(t.dropLast(2)) }
+                else { t = String(t.dropLast()) }
+                t = t.trimmingCharacters(in: .whitespaces)
+            }
+            
+            t = capitalizeFirstLetter(t)
+            return cleanupWhitespace(t)
+        }
+    }
+    
+    /// Mask clock times, run transform, unmask — so style punctuation never mangles them.
+    private static func withProtectedTimes(_ text: String, transform: (String) -> String) -> String {
+        // 3:30pm | 3pm | 3:00 | 12:00am | 3,00 (broken form we may still see)
+        let pattern = #"(?i)\b\d{1,2}:\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b|\b\d{1,2}\s*(?:a\.?m\.?|p\.?m\.?)\b|\b\d{1,2},\d{2}\s*(?:a\.?m\.?|p\.?m\.?)?\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return TimeNormalizer.normalize(transform(text))
         }
         
-        t = cleanupWhitespace(out)
-        while t.contains(",,") { t = t.replacingOccurrences(of: ",,", with: ",") }
-        t = t.replacingOccurrences(of: " ,", with: ",")
-        t = t.replacingOccurrences(of: ",", with: ", ")
-        t = cleanupWhitespace(t)
-        while t.contains(", ,") { t = t.replacingOccurrences(of: ", ,", with: ", ") }
-        while t.hasSuffix(",") || t.hasSuffix(", ") {
-            if t.hasSuffix(", ") { t = String(t.dropLast(2)) }
-            else { t = String(t.dropLast()) }
-            t = t.trimmingCharacters(in: .whitespaces)
+        var work = text
+        var tokens: [String] = []
+        let matches = regex.matches(in: work, range: NSRange(work.startIndex..., in: work))
+        
+        // Replace from the end so ranges stay valid
+        for match in matches.enumerated().reversed() {
+            let (idx, m) = match
+            let ns = work as NSString
+            let token = ns.substring(with: m.range)
+            let key = "ZZTIME\(idx)ZZ"
+            // Ensure tokens array size
+            while tokens.count <= idx { tokens.append("") }
+            tokens[idx] = token
+            work = ns.replacingCharacters(in: m.range, with: key)
         }
         
-        t = capitalizeFirstLetter(t)
-        return cleanupWhitespace(t)
+        var result = transform(work)
+        // Casual lowercases placeholders → zztime0zz
+        for (i, token) in tokens.enumerated() where !token.isEmpty {
+            let upper = "ZZTIME\(i)ZZ"
+            let lower = "zztime\(i)zz"
+            result = result.replacingOccurrences(of: upper, with: token)
+            result = result.replacingOccurrences(of: lower, with: token)
+        }
+        // Fix any times that style still broke (e.g. 3,00)
+        return TimeNormalizer.normalize(result)
     }
     
     /// Formal: full caps rules, periods, expanded contractions.

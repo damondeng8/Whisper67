@@ -132,6 +132,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentViewController = hosting
         window.title = "Whisper67"
         window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.isOpaque = false
+        window.backgroundColor = .clear
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 820, height: 560)
         window.contentMinSize = NSSize(width: 820, height: 560)
@@ -231,6 +234,23 @@ struct MenuBarView: View {
         
         Text("Words: \(appState.usageStats.formattedWords)")
         Text("Engine: \(appState.provider.displayName)")
+        
+        Divider()
+        
+        Menu("Appearance: \(appState.appearance.title)") {
+            ForEach(AppAppearance.allCases) { mode in
+                Button {
+                    appState.appearance = mode
+                } label: {
+                    HStack {
+                        Text(mode.title)
+                        if appState.appearance == mode {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        }
         
         Divider()
         

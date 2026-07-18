@@ -121,7 +121,7 @@ struct HistoryTab: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .background {
-                            Capsule().fill(Color.black.opacity(0.05))
+                            Capsule().fill(DengBrand.chipInset)
                         }
                     
                     Spacer()

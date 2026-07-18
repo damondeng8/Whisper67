@@ -197,20 +197,24 @@ class WhisperService {
         }
     }
     
-    /// One place for list detect → optional OSS → style (keeps pipeline readable).
+    /// list detect → optional OSS → style → **always** self-correct + times at the end.
     private func finalizeTranscript(_ text: String, appState: AppState) async -> String {
-        let listDetection = ListDetector.analyze(text)
+        // Local corrections first (even before OSS) so final intent is already clean
+        let preCorrected = SelfCorrection.apply(text)
+        
+        let listDetection = ListDetector.analyze(preCorrected)
         let listLikely = appState.listModeEnabled && listDetection.isLikelyList
         
         let runOSS = appState.canRunAIPolish
             || (appState.listModeEnabled && appState.hasGroqKey && listDetection.isLikelyList)
         
+        var result: String
         if runOSS {
             let strength = appState.canRunAIPolish
                 ? appState.aiPolishStrength
                 : min(appState.aiPolishStrength, 0.30)
             let polished = await TranscriptCleanupService.polish(
-                text,
+                preCorrected,
                 style: appState.dictationStyle,
                 listModeEnabled: appState.listModeEnabled,
                 listLikely: listLikely,
@@ -218,18 +222,21 @@ class WhisperService {
                 groqAPIKey: appState.groqKey,
                 strength: strength
             )
-            // Prefer OSS wording; always enforce local style (list markers preserved)
-            let base = polished == text
-                ? text
-                : polished.trimmingCharacters(in: .whitespacesAndNewlines)
-            return TranscriptFormatter.format(
-                base,
+            let base = polished.trimmingCharacters(in: .whitespacesAndNewlines)
+            let useLocalList = listLikely && (base == preCorrected || !ListDetector.looksLikeNumberedList(base))
+            result = TranscriptFormatter.format(
+                base.isEmpty ? preCorrected : base,
                 style: appState.dictationStyle,
-                listMode: listLikely && polished == text
+                listMode: useLocalList
             )
+        } else {
+            result = appState.formatTranscript(preCorrected, forceList: listLikely)
         }
         
-        return appState.formatTranscript(text, forceList: listLikely)
+        // Final pass: corrections + times must win even if OSS undid them
+        result = SelfCorrection.apply(result)
+        result = IntentVocabulary.localRepair(result, userDictionary: appState.customWords.map(\.word))
+        return result
     }
     
     private func finish(job: UInt64, error: String, duration: Double) async {
